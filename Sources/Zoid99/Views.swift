@@ -439,6 +439,9 @@ struct SettingsView: View {
                     subtitle: "Connection health, evidence, repair actions, refresh, and privacy."
                 )
                 Divider().overlay(SumiColor.ink)
+                SectionTitle("EXTERNAL PROVIDER CONNECTIONS")
+                ProviderConnectionsLedger()
+                SectionTitle("SOURCE HEALTH")
                 SourceHealthLedger(compact: false)
                 SectionTitle("REFRESH & PRIVACY")
                 VStack(alignment: .leading, spacing: 14) {
@@ -471,6 +474,7 @@ struct SettingsView: View {
 struct SourceHealthLedger: View {
     @EnvironmentObject private var store: AppStore
     let compact: Bool
+    @State private var selectedProvider: ExternalProvider?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -515,7 +519,9 @@ struct SourceHealthLedger: View {
                     Spacer()
                     if !compact {
                         Button(health.repairAction) {
-                            store.statusMessage = "\(health.group.rawValue) setup required"
+                            selectedProvider = health.group == .comments
+                                ? .youtube
+                                : ExternalProvider.allCases.first { $0.sourceGroup == health.group }
                         }
                         .buttonStyle(SumiButtonStyle())
                     }
@@ -524,6 +530,165 @@ struct SourceHealthLedger: View {
                 .overlay(alignment: .bottom) { Divider().overlay(SumiColor.rule) }
             }
         }
+        .sheet(item: $selectedProvider) { provider in
+            ProviderConnectionSheet(provider: provider)
+                .environmentObject(store)
+        }
+    }
+}
+
+private struct ProviderConnectionsLedger: View {
+    @EnvironmentObject private var store: AppStore
+    @State private var selectedProvider: ExternalProvider?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("PROVIDER")
+                Spacer()
+                Text("ACTION")
+            }
+            .font(SumiFont.meta(9))
+            .tracking(1)
+            .padding(.vertical, 8)
+            .overlay(alignment: .bottom) { Divider().overlay(SumiColor.ink) }
+
+            ForEach(store.providerConnections) { connection in
+                let definition = ProviderDefinition.catalog.first { $0.provider == connection.provider }
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(alignment: .center, spacing: 12) {
+                        Text(connection.provider.rawValue)
+                            .font(SumiFont.body())
+                            .frame(width: 150, alignment: .leading)
+                        StateLabel(text: connection.state.rawValue, urgent: connection.state.needsAttention)
+                        Spacer()
+                        Button(connection.repairAction) {
+                            selectedProvider = connection.provider
+                        }
+                        .buttonStyle(SumiButtonStyle())
+                        .disabled(connection.state == .validating)
+                    }
+                    HStack(spacing: 18) {
+                        Text("CREDENTIAL  \(definition?.credentialBoundary.rawValue ?? "Unsupported")")
+                        Group {
+                            if let activity = connection.lastActivity {
+                                Text("LAST ACTIVITY  \(activity.formatted(date: .abbreviated, time: .shortened))")
+                            } else {
+                                Text("LAST ACTIVITY  No verified activity")
+                            }
+                        }
+                    }
+                    .font(SumiFont.meta(9))
+                    .tracking(0.5)
+                    Text(connection.evidence)
+                        .font(SumiFont.body(12))
+                        .foregroundStyle(SumiColor.mutedInk)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.vertical, 10)
+                .overlay(alignment: .bottom) { Divider().overlay(SumiColor.rule) }
+            }
+        }
+        .sheet(item: $selectedProvider) { provider in
+            ProviderConnectionSheet(provider: provider)
+                .environmentObject(store)
+        }
+    }
+}
+
+private struct ProviderConnectionSheet: View {
+    @EnvironmentObject private var store: AppStore
+    @Environment(\.dismiss) private var dismiss
+    let provider: ExternalProvider
+    @State private var credential = ""
+
+    private var definition: ProviderDefinition {
+        ProviderDefinition.catalog.first { $0.provider == provider }!
+    }
+
+    private var connection: ProviderConnection? {
+        store.providerConnections.first { $0.provider == provider }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .top) {
+                LedgerHeader(
+                    eyebrow: "External authorization only",
+                    title: provider.rawValue,
+                    subtitle: "This does not create or sign in to a Zoid 99 account."
+                )
+                Spacer()
+                Button("Close") { dismiss() }.buttonStyle(SumiButtonStyle())
+            }
+            Divider().overlay(SumiColor.ink)
+            if let connection {
+                HStack {
+                    StateLabel(text: connection.state.rawValue, urgent: connection.state.needsAttention)
+                    Text(connection.evidence)
+                        .font(SumiFont.body(12))
+                        .foregroundStyle(SumiColor.mutedInk)
+                }
+            }
+            connectionDetails
+            if definition.credentialBoundary == .keychain {
+                VStack(alignment: .leading, spacing: 7) {
+                    Text("PROVIDER CREDENTIAL").font(SumiFont.meta(9)).tracking(1)
+                    SecureField("Paste credential", text: $credential)
+                        .textFieldStyle(.plain)
+                        .padding(10)
+                        .overlay(Rectangle().stroke(SumiColor.rule))
+                    Text("The value is sent directly to macOS Keychain. It is never displayed again or written to app logs.")
+                        .font(SumiFont.body(12))
+                        .foregroundStyle(SumiColor.mutedInk)
+                }
+            }
+            HStack {
+                Button(definition.credentialBoundary == .serverSecret ? "Check server status" : "Validate again") {
+                    Task { await store.validateConnection(provider) }
+                }
+                if definition.credentialBoundary == .keychain {
+                    Button("Save & validate") {
+                        let submitted = credential
+                        credential = ""
+                        Task { await store.connect(provider, credential: submitted) }
+                    }
+                    .buttonStyle(SumiButtonStyle(primary: true))
+                    Button("Disconnect") {
+                        credential = ""
+                        Task { await store.disconnect(provider) }
+                    }
+                    .buttonStyle(SumiButtonStyle(urgent: true))
+                }
+            }
+            .buttonStyle(SumiButtonStyle())
+        }
+        .padding(30)
+        .frame(minWidth: 720, maxWidth: 720, minHeight: 500)
+        .background(SumiColor.paper)
+    }
+
+    private var connectionDetails: some View {
+        VStack(spacing: 0) {
+            detailRow("PREREQUISITE", definition.prerequisite)
+            detailRow("PERMISSION SCOPE", definition.permissionScope)
+            detailRow("CREDENTIAL LOCATION", definition.credentialBoundary.rawValue)
+            detailRow("SETUP", definition.setupGuidance)
+        }
+        .overlay(Rectangle().stroke(SumiColor.rule))
+    }
+
+    private func detailRow(_ label: String, _ value: String) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            Text(label)
+                .font(SumiFont.meta(9))
+                .tracking(1)
+                .frame(width: 150, alignment: .leading)
+            Text(value).font(SumiFont.body())
+            Spacer()
+        }
+        .padding(12)
+        .overlay(alignment: .bottom) { Divider().overlay(SumiColor.rule) }
     }
 }
 
@@ -699,17 +864,7 @@ struct FirstRunView: View {
     @ViewBuilder private var stepContent: some View {
         switch step {
         case 1:
-            VStack(spacing: 0) {
-                ForEach(SourceGroup.allCases) { group in
-                    HStack {
-                        Text(group.rawValue).font(SumiFont.body())
-                        Spacer()
-                        StateLabel(text: "Setup required", urgent: true)
-                    }
-                    .padding(.vertical, 10)
-                    .overlay(alignment: .bottom) { Divider().overlay(SumiColor.rule) }
-                }
-            }
+            ProviderConnectionsLedger()
         case 2:
             Text("AI agents · Multimodal models · Egypt · Saudi Arabia · UAE · Oman · Arabic")
                 .font(SumiFont.body(16))

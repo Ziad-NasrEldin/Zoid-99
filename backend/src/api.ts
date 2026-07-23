@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { IngestionPayload, OpportunityDispositionMutation, WatchlistEntry } from "./domain.js";
 import type { ResearchRepository } from "./repository.js";
 import { isAuthorized } from "./security.js";
+import { serverProviders, type ServerConnectionService } from "./connections.js";
 
 const dispositionSchema = z.enum(["active", "saved", "watched", "dismissed", "muted"]);
 const dispositionMutationSchema = z.object({
@@ -15,11 +16,16 @@ const watchlistSchema = z.object({
   value: z.string().trim().min(1).max(500),
   highPriority: z.boolean(),
 }).strict();
+const serverProviderSchema = z.enum(serverProviders);
+const providerCredentialSchema = z.object({
+  credential: z.string().trim().min(1).max(16_384),
+}).strict();
 
 export function buildApi(options: {
   repository: ResearchRepository;
   apiToken: string;
   logger?: boolean | { level: string };
+  connectionService?: ServerConnectionService;
 }): FastifyInstance {
   const app = Fastify({
     logger: options.logger ?? false,
@@ -67,6 +73,31 @@ export function buildApi(options: {
     });
   });
   app.get("/v1/sources/health", async () => options.repository.listSourceHealth());
+  if (options.connectionService) {
+    app.get("/v1/connections", async () => options.connectionService!.list());
+    app.get("/v1/connections/:provider", async (request, reply) => {
+      const params = z.object({ provider: serverProviderSchema }).safeParse(request.params);
+      if (!params.success) return invalidRequest(reply, params.error.issues);
+      return options.connectionService!.status(params.data.provider);
+    });
+    app.put("/v1/connections/:provider", async (request, reply) => {
+      const params = z.object({ provider: serverProviderSchema }).safeParse(request.params);
+      const body = providerCredentialSchema.safeParse(request.body);
+      if (!params.success) return invalidRequest(reply, params.error.issues);
+      if (!body.success) return invalidRequest(reply, body.error.issues);
+      return options.connectionService!.configure(params.data.provider, body.data.credential);
+    });
+    app.post("/v1/connections/:provider/validate", async (request, reply) => {
+      const params = z.object({ provider: serverProviderSchema }).safeParse(request.params);
+      if (!params.success) return invalidRequest(reply, params.error.issues);
+      return options.connectionService!.validate(params.data.provider);
+    });
+    app.delete("/v1/connections/:provider", async (request, reply) => {
+      const params = z.object({ provider: serverProviderSchema }).safeParse(request.params);
+      if (!params.success) return invalidRequest(reply, params.error.issues);
+      return options.connectionService!.disconnect(params.data.provider);
+    });
+  }
   app.get("/v1/opportunities", async (request, reply) => {
     const query = z.object({ disposition: dispositionSchema.optional() }).safeParse(request.query);
     if (!query.success) return invalidRequest(reply, query.error.issues);

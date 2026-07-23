@@ -13,6 +13,9 @@ test("encrypted config abstraction never passes plaintext to persistence", async
     async get(key) {
       return persisted.get(key) ?? null;
     },
+    async remove(key) {
+      persisted.delete(key);
+    },
   };
   const service = new EncryptedConfigService(store, new SecretCipher(Buffer.alloc(32, 5)));
   await service.set("youtube.oauth", "private-token");

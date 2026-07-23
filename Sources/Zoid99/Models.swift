@@ -20,9 +20,12 @@ enum VerificationState: String, CaseIterable, Codable, Sendable {
 enum ConnectionState: String, Codable, Sendable {
     case connected = "Connected"
     case setupRequired = "Setup required"
+    case disconnected = "Disconnected"
     case unavailable = "Unavailable"
     case rateLimited = "Rate limited"
     case delayed = "Delayed"
+    case cached = "Cached"
+    case unsupported = "Unsupported"
 }
 
 enum DataTruth: String, CaseIterable, Codable, Sendable {

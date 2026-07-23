@@ -15,4 +15,12 @@ export class EncryptedConfigService {
     const encrypted = await this.store.get(key);
     return encrypted === null ? null : this.cipher.decrypt(encrypted);
   }
+
+  async has(key: string): Promise<boolean> {
+    return (await this.store.get(key)) !== null;
+  }
+
+  async remove(key: string): Promise<void> {
+    await this.store.remove(key);
+  }
 }

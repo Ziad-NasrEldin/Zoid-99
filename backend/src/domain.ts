@@ -12,9 +12,12 @@ export type VerificationState = "Confirmed" | "Disputed" | "Unverified";
 export type ConnectionState =
   | "Connected"
   | "Setup required"
+  | "Disconnected"
   | "Unavailable"
   | "Rate limited"
-  | "Delayed";
+  | "Delayed"
+  | "Cached"
+  | "Unsupported";
 export type OpportunityDisposition = "active" | "saved" | "watched" | "dismissed" | "muted";
 export interface OpportunityDispositionMutation {
   disposition: OpportunityDisposition;

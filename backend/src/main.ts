@@ -1,11 +1,21 @@
 import { buildApi } from "./api.js";
 import { loadConfig } from "./config.js";
 import { createPool, PostgreSqlRepository } from "./postgres.js";
+import { EncryptedConfigService } from "./encrypted-config.js";
+import { SecretCipher } from "./security.js";
+import { ServerConnectionService } from "./connections.js";
 
 const config = loadConfig(process.env);
 const pool = createPool(config.databaseUrl);
 const repository = new PostgreSqlRepository(pool);
-const app = buildApi({ repository, apiToken: config.apiToken, logger: { level: config.logLevel } });
+const encryptedConfig = new EncryptedConfigService(repository, new SecretCipher(config.encryptionKey));
+const connectionService = new ServerConnectionService(encryptedConfig);
+const app = buildApi({
+  repository,
+  apiToken: config.apiToken,
+  logger: { level: config.logLevel },
+  connectionService,
+});
 
 async function shutdown(signal: string): Promise<void> {
   app.log.info({ signal }, "Stopping backend");

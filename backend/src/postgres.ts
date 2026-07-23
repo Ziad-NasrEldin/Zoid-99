@@ -463,6 +463,10 @@ export class PostgreSqlRepository implements ResearchRepository, EncryptedConfig
     return result.rows[0]?.encrypted_value ?? null;
   }
 
+  async remove(key: string): Promise<void> {
+    await this.database.query("DELETE FROM encrypted_configs WHERE config_key = $1", [key]);
+  }
+
   private async hydrateOpportunities(rows: OpportunityRow[]): Promise<Opportunity[]> {
     if (rows.length === 0) return [];
     const clusterIDs = rows.map((row) => row.story_cluster_id);

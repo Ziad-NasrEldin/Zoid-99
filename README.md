@@ -77,6 +77,16 @@ Normal tests use deterministic fixtures and never require a YouTube credential.
 
 The normal test suite never requires network access.
 
+## External provider connections
+
+Zoid 99 has no login, signup, account creation, team account, or app-account system.
+Connection screens authorize external research providers only.
+YouTube, Instagram/Meta, and X credentials use macOS Keychain when the native connector owns authorization.
+Google Trends and AI provider credentials are accepted only by the monitoring server and are encrypted before persistence.
+Official feeds require no account.
+Every provider remains setup required, unavailable, unsupported, delayed, rate limited, cached, or disconnected until its connector supplies verified evidence.
+Connector-specific live checks remain explicit opt-in tests and are never part of the normal fixture suite.
+
 ## Manual validation checklist
 
 - Complete all five first-run steps.
