@@ -1,0 +1,62 @@
+{
+  "data": [
+    {
+      "id": "1900000000000000100",
+      "text": "Agent evaluation release notes with measured improvements.",
+      "author_id": "1001",
+      "created_at": "2026-07-23T10:00:00.000Z",
+      "lang": "en",
+      "public_metrics": {
+        "retweet_count": 12,
+        "reply_count": 3,
+        "like_count": 40,
+        "quote_count": 5,
+        "bookmark_count": 2,
+        "impression_count": 900
+      },
+      "referenced_tweets": [
+        {
+          "type": "quoted",
+          "id": "1900000000000000001"
+        }
+      ]
+    }
+  ],
+  "includes": {
+    "users": [
+      {
+        "id": "1001",
+        "name": "Example AI",
+        "username": "example_ai"
+      },
+      {
+        "id": "1002",
+        "name": "Research Lab",
+        "username": "research_lab"
+      }
+    ],
+    "tweets": [
+      {
+        "id": "1900000000000000001",
+        "text": "Original evaluation report and methodology.",
+        "author_id": "1002",
+        "created_at": "2026-07-23T09:30:00.000Z",
+        "lang": "en",
+        "public_metrics": {
+          "retweet_count": 20,
+          "reply_count": 4,
+          "like_count": 70,
+          "quote_count": 8,
+          "bookmark_count": 6,
+          "impression_count": 1400
+        }
+      }
+    ]
+  },
+  "meta": {
+    "newest_id": "1900000000000000100",
+    "oldest_id": "1900000000000000100",
+    "result_count": 1,
+    "next_token": "page-two-token"
+  }
+}
