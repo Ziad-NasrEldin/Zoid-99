@@ -137,7 +137,11 @@ test("research refreshes preserve user disposition and notification read state",
   const repository = new PostgreSqlRepository(pool);
   const batch = researchBatch("preserved-user-state", "preserved-evidence");
   const first = await repository.persistResearchBatch(batch);
-  await repository.updateOpportunityDisposition(first.id, "muted");
+  await repository.updateOpportunityDisposition(first.id, {
+    disposition: "muted",
+    changedAt: "2026-07-25T09:00:00.000Z",
+    mutationID: "50000000-0000-4000-8000-000000000010",
+  });
   const notification = (await repository.listNotifications())
     .find((candidate) => candidate.opportunityID === first.id)!;
   await repository.markNotificationRead(notification.id, true);
@@ -149,4 +153,31 @@ test("research refreshes preserve user disposition and notification read state",
   assert.equal((await repository.getOpportunity(first.id))?.disposition, "muted");
   assert.equal((await repository.listNotifications())
     .find((candidate) => candidate.opportunityID === first.id)?.isRead, true);
+});
+
+test("PostgreSQL disposition writes survive repository restart and reject stale retries", {
+  skip: databaseUrl ? false : "TEST_DATABASE_URL is not configured",
+}, async (context) => {
+  const pool = createPool(databaseUrl!);
+  context.after(() => pool.end());
+  const firstRepository = new PostgreSqlRepository(pool);
+  const opportunity = await firstRepository.persistResearchBatch(
+    researchBatch("durable-disposition", "durable-evidence"),
+  );
+  const latest = {
+    disposition: "dismissed" as const,
+    changedAt: "2026-07-25T11:00:00.000Z",
+    mutationID: "50000000-0000-4000-8000-000000000011",
+  };
+
+  assert.equal((await firstRepository.updateOpportunityDisposition(opportunity.id, latest))?.outcome, "applied");
+  assert.equal((await firstRepository.updateOpportunityDisposition(opportunity.id, latest))?.outcome, "idempotent");
+  const restartedRepository = new PostgreSqlRepository(pool);
+  assert.equal((await restartedRepository.getOpportunity(opportunity.id))?.disposition, "dismissed");
+  assert.equal((await restartedRepository.updateOpportunityDisposition(opportunity.id, {
+    disposition: "saved",
+    changedAt: "2026-07-25T10:59:00.000Z",
+    mutationID: "50000000-0000-4000-8000-000000000012",
+  }))?.outcome, "superseded");
+  assert.equal((await restartedRepository.getOpportunity(opportunity.id))?.disposition, "dismissed");
 });

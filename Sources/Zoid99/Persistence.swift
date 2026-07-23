@@ -10,7 +10,7 @@ protocol ResearchPersistence: Sendable {
 }
 
 struct PersistenceDocument: Codable, Sendable {
-    static let currentSchemaVersion = 2
+    static let currentSchemaVersion = 3
 
     let schemaVersion: Int
     let savedAt: Date
@@ -46,7 +46,7 @@ struct JSONResearchPersistence: ResearchPersistence, Sendable {
         let data = try Data(contentsOf: fileURL)
         let version = try decoder.decode(SchemaHeader.self, from: data).schemaVersion
         switch version {
-        case PersistenceDocument.currentSchemaVersion:
+        case PersistenceDocument.currentSchemaVersion, 2:
             return try decoder.decode(PersistenceDocument.self, from: data).state
         case 1:
             return try migrateV1(decoder.decode(PersistenceDocumentV1.self, from: data))

@@ -60,11 +60,46 @@ test("a disposition update is persisted through the authenticated public API", a
     method: "PATCH",
     url: `/v1/opportunities/${fixtureOpportunity.id}/disposition`,
     headers: authorization,
-    payload: { disposition: "dismissed" },
+    payload: {
+      disposition: "dismissed",
+      changedAt: "2026-07-23T09:00:00.000Z",
+      mutationID: "50000000-0000-4000-8000-000000000001",
+    },
   });
   assert.equal(response.statusCode, 200);
   assert.equal(response.json().disposition, "dismissed");
+  assert.equal(response.json().outcome, "applied");
   assert.equal(repository.opportunities[0]?.disposition, "dismissed");
+});
+
+test("disposition retries are idempotent and stale offline writes return canonical state", async (context) => {
+  const repository = new MemoryRepository();
+  const app = buildApi({ repository, apiToken });
+  context.after(() => app.close());
+  const url = `/v1/opportunities/${fixtureOpportunity.id}/disposition`;
+  const latest = {
+    disposition: "watched",
+    changedAt: "2026-07-23T10:00:00.000Z",
+    mutationID: "50000000-0000-4000-8000-000000000002",
+  };
+
+  const applied = await app.inject({ method: "PATCH", url, headers: authorization, payload: latest });
+  const retried = await app.inject({ method: "PATCH", url, headers: authorization, payload: latest });
+  const stale = await app.inject({
+    method: "PATCH",
+    url,
+    headers: authorization,
+    payload: {
+      disposition: "dismissed",
+      changedAt: "2026-07-23T09:30:00.000Z",
+      mutationID: "50000000-0000-4000-8000-000000000003",
+    },
+  });
+
+  assert.equal(applied.json().outcome, "applied");
+  assert.equal(retried.json().outcome, "idempotent");
+  assert.equal(stale.json().outcome, "superseded");
+  assert.equal(stale.json().disposition, "watched");
 });
 
 test("invalid identifiers and unsupported states return stable client errors", async (context) => {
@@ -83,7 +118,11 @@ test("invalid identifiers and unsupported states return stable client errors", a
     method: "PATCH",
     url: `/v1/opportunities/${fixtureOpportunity.id}/disposition`,
     headers: authorization,
-    payload: { disposition: "published" },
+    payload: {
+      disposition: "published",
+      changedAt: "2026-07-23T09:00:00.000Z",
+      mutationID: "50000000-0000-4000-8000-000000000004",
+    },
   });
   assert.equal(badDisposition.statusCode, 400);
   assert.equal(badDisposition.json().error, "invalid_request");

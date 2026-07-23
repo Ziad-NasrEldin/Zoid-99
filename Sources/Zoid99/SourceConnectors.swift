@@ -44,7 +44,9 @@ protocol ProductionSourceConnector: Sendable {
 
 struct HTTPRequest: Equatable, Sendable {
     let url: URL
+    var method = "GET"
     var headers: [String: String] = [:]
+    var body: Data?
     var timeout: TimeInterval = 15
 }
 
@@ -71,6 +73,8 @@ struct URLSessionHTTPTransport: HTTPTransport {
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         var urlRequest = URLRequest(url: request.url, timeoutInterval: request.timeout)
+        urlRequest.httpMethod = request.method
+        urlRequest.httpBody = request.body
         request.headers.forEach { urlRequest.setValue($0.value, forHTTPHeaderField: $0.key) }
         let (data, response) = try await session.data(for: urlRequest)
         guard let http = response as? HTTPURLResponse else { throw ConnectorError.unavailable }

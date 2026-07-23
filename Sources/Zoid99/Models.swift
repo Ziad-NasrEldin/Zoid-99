@@ -43,6 +43,25 @@ enum OpportunityDisposition: String, Codable, Sendable {
     case active, saved, watched, dismissed, muted
 }
 
+struct OpportunityDispositionMutation: Identifiable, Codable, Hashable, Sendable {
+    let id: UUID
+    let opportunityID: UUID
+    let disposition: OpportunityDisposition
+    let changedAt: Date
+}
+
+struct OpportunityDispositionState: Codable, Hashable, Sendable {
+    enum Outcome: String, Codable, Sendable {
+        case applied, idempotent, superseded
+    }
+
+    let opportunityID: UUID
+    let disposition: OpportunityDisposition
+    let changedAt: Date
+    let mutationID: UUID
+    let outcome: Outcome?
+}
+
 struct SourceItem: Identifiable, Codable, Hashable, Sendable {
     let id: UUID
     let group: SourceGroup
@@ -89,6 +108,8 @@ struct Opportunity: Identifiable, Codable, Hashable, Sendable {
     let regionalExplanation: String
     let coverageExplanation: String
     var disposition: OpportunityDisposition
+    var dispositionUpdatedAt: Date? = nil
+    var dispositionMutationID: UUID? = nil
 
     var isHighPriority: Bool { score.total >= 75 && verification == .confirmed }
     var dataTruth: DataTruth {
@@ -116,7 +137,9 @@ struct Opportunity: Identifiable, Codable, Hashable, Sendable {
             score: score,
             regionalExplanation: regionalExplanation,
             coverageExplanation: coverageExplanation,
-            disposition: disposition
+            disposition: disposition,
+            dispositionUpdatedAt: dispositionUpdatedAt,
+            dispositionMutationID: dispositionMutationID
         )
     }
 }
@@ -202,6 +225,7 @@ struct ResearchState: Codable, Hashable, Sendable {
     var sourceHealth: [SourceHealth]
     var sourceHealthHistory: [SourceHealthRecord]
     var lastSuccessfulSyncAt: Date?
+    var pendingDispositionMutations: [OpportunityDispositionMutation]? = []
 
     static let empty = ResearchState(
         sourceItems: [],
@@ -213,7 +237,8 @@ struct ResearchState: Codable, Hashable, Sendable {
         notificationHistory: [],
         sourceHealth: [],
         sourceHealthHistory: [],
-        lastSuccessfulSyncAt: nil
+        lastSuccessfulSyncAt: nil,
+        pendingDispositionMutations: []
     )
 }
 

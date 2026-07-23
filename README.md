@@ -32,6 +32,10 @@ Live YouTube, Google Trends, Instagram, comments, and X credentials are not bund
 Native notification permission is requested only through the explicit setup or settings action.
 Always-on monitoring while the Mac sleeps requires a separately deployed monitoring service.
 
+When the backend is available, set `ZOID99_BACKEND_URL` and `ZOID99_API_TOKEN` before launching the app.
+Opportunity actions are applied immediately, retained across restarts, and retried through the private single-user API.
+The app shows a written synced or queued state and does not require a Zoid 99 login.
+
 Run the opt-in public-feed validation with:
 
 ```sh

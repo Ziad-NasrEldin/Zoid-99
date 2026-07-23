@@ -52,9 +52,15 @@ The first version has one user and no public registration or session endpoint.
 Response fields and written enum values match the existing Swift models.
 Database-only fields and encrypted values are never returned.
 
+Disposition updates require `disposition`, the explicit user-action timestamp in `changedAt`, and an idempotency UUID in `mutationID`.
+Repeating the same mutation is safe.
+If an older offline mutation arrives after a newer action, the response returns the canonical state with the `superseded` outcome.
+Save and watch remain visible in Today and Radar, while dismiss and mute are filtered by the macOS projections after reconciliation.
+
 ## Production notes
 
 Run migrations once before starting a new application version.
+Every additive migration has a matching SQL rollback under `migrations/rollback/` that is not applied by the forward migration runner.
 Use a managed PostgreSQL service with encrypted backups and TLS.
 Store the API token, database URL, and encryption key in the deployment platform's secret manager.
 Rotate the API token by updating the service and macOS Keychain together.

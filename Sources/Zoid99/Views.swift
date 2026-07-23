@@ -47,6 +47,9 @@ struct MainShellView: View {
         .onChange(of: selection) { _, value in
             if let value { store.selectedDestination = value }
         }
+        .task {
+            await store.synchronizePendingDispositions()
+        }
     }
 
     @ViewBuilder
@@ -549,6 +552,7 @@ struct OpportunityDetailView: View {
                             StateLabel(text: opportunity.verification.rawValue, urgent: opportunity.verification != .confirmed)
                             StateLabel(text: opportunity.dataTruth.rawValue, urgent: opportunity.dataTruth.isAttentionRequired)
                             StateLabel(text: "Score \(opportunity.score.total)", urgent: opportunity.isHighPriority)
+                            StateLabel(text: opportunity.disposition.rawValue.uppercased())
                             Text(opportunity.originalSource == nil ? "ORIGIN UNKNOWN" : "ORIGINAL SOURCE IDENTIFIED")
                                 .font(SumiFont.meta(9))
                                 .foregroundStyle(opportunity.originalSource == nil ? SumiColor.sealDeep : SumiColor.healthy)

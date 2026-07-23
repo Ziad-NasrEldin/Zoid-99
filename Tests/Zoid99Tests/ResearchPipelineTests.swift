@@ -58,6 +58,96 @@ final class ResearchPipelineTests: XCTestCase {
         XCTAssertFalse(store.visibleOpportunities.contains { $0.id == second.id })
     }
 
+    @MainActor
+    func testOfflineDispositionSurvivesRestartAndSynchronizesCanonicalState() async {
+        let persistence = MemoryPersistence()
+        let actionTime = Date(timeIntervalSince1970: 1_785_000_000)
+        let firstLaunch = AppStore(
+            persistence: persistence,
+            dispositionSync: NoopOpportunityDispositionSync(),
+            now: { actionTime }
+        )
+        let opportunity = firstLaunch.visibleOpportunities[0]
+
+        firstLaunch.updateDisposition(.saved, id: opportunity.id)
+        await firstLaunch.synchronizePendingDispositions()
+        XCTAssertEqual(
+            firstLaunch.opportunities.first { $0.id == opportunity.id }?.disposition,
+            .saved
+        )
+        XCTAssertTrue(firstLaunch.statusMessage.contains("queued for sync"))
+
+        let sync = StubDispositionSync { pending in
+            let mutation = try! XCTUnwrap(pending.first)
+            return DispositionSyncResult(
+                states: [
+                    OpportunityDispositionState(
+                        opportunityID: mutation.opportunityID,
+                        disposition: mutation.disposition,
+                        changedAt: mutation.changedAt,
+                        mutationID: mutation.id,
+                        outcome: .applied
+                    )
+                ],
+                acknowledgedMutationIDs: [mutation.id],
+                errorMessage: nil
+            )
+        }
+        let restarted = AppStore(
+            persistence: persistence,
+            dispositionSync: sync,
+            loadDemoDataWhenEmpty: false
+        )
+        await restarted.synchronizePendingDispositions()
+
+        XCTAssertEqual(restarted.opportunities.first { $0.id == opportunity.id }?.disposition, .saved)
+        XCTAssertEqual(restarted.statusMessage, "Opportunity saved - synced")
+        let finalRestart = AppStore(persistence: persistence, loadDemoDataWhenEmpty: false)
+        XCTAssertEqual(finalRestart.opportunities.first { $0.id == opportunity.id }?.disposition, .saved)
+    }
+
+    @MainActor
+    func testNewerServerDispositionSupersedesStaleOfflineActionAndHidesFutureResults() async {
+        let actionTime = Date(timeIntervalSince1970: 1_785_000_000)
+        let serverTime = actionTime.addingTimeInterval(60)
+        let serverMutationID = UUID(uuidString: "60000000-0000-4000-8000-000000000001")!
+        let sync = StubDispositionSync { pending in
+            DispositionSyncResult(
+                states: [
+                    OpportunityDispositionState(
+                        opportunityID: pending[0].opportunityID,
+                        disposition: .muted,
+                        changedAt: serverTime,
+                        mutationID: serverMutationID,
+                        outcome: .superseded
+                    )
+                ],
+                acknowledgedMutationIDs: [pending[0].id],
+                errorMessage: nil
+            )
+        }
+        let store = AppStore(
+            persistence: MemoryPersistence(),
+            dispositionSync: sync,
+            now: { actionTime }
+        )
+        let opportunity = store.visibleOpportunities[0]
+
+        store.updateDisposition(.watched, id: opportunity.id)
+        await store.synchronizePendingDispositions()
+
+        XCTAssertEqual(store.opportunities.first { $0.id == opportunity.id }?.disposition, .muted)
+        XCTAssertFalse(store.visibleOpportunities.contains { $0.id == opportunity.id })
+        XCTAssertEqual(
+            store.opportunities.first { $0.id == opportunity.id }?.originalSource?.url,
+            opportunity.originalSource?.url
+        )
+        XCTAssertEqual(
+            store.opportunities.first { $0.id == opportunity.id }?.earliestPublishedAt,
+            opportunity.earliestPublishedAt
+        )
+    }
+
     func testThemeAndMotionPolicyConstants() {
         XCTAssertEqual(SumiMotion.pressDuration, 0.15)
         XCTAssertEqual(SumiMotion.hoverDuration, 0.18)
@@ -236,5 +326,13 @@ private struct StubSync: ResearchSyncing {
 
     func synchronize() async -> [SourceSyncResult] {
         results
+    }
+}
+
+private struct StubDispositionSync: OpportunityDispositionSyncing {
+    let handler: @Sendable ([OpportunityDispositionMutation]) -> DispositionSyncResult
+
+    func reconcile(_ pending: [OpportunityDispositionMutation]) async -> DispositionSyncResult {
+        handler(pending)
     }
 }

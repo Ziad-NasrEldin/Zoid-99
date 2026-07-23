@@ -4,6 +4,8 @@ import type {
   NotificationRecord,
   Opportunity,
   OpportunityDisposition,
+  OpportunityDispositionMutation,
+  OpportunityDispositionState,
   ResearchBatch,
   SourceHealth,
   SourceItem,
@@ -30,6 +32,8 @@ type OpportunityRow = {
   regional_explanation: string;
   coverage_explanation: string;
   disposition: OpportunityDisposition;
+  disposition_updated_at: Date;
+  disposition_mutation_id: string | null;
 };
 
 type SourceItemRow = {
@@ -291,12 +295,62 @@ export class PostgreSqlRepository implements ResearchRepository, EncryptedConfig
     return (await this.hydrateOpportunities(result.rows))[0] ?? null;
   }
 
-  async updateOpportunityDisposition(id: string, disposition: OpportunityDisposition): Promise<Opportunity | null> {
-    await this.database.query(`
-      UPDATE opportunities SET disposition = $2, updated_at = now()
-      WHERE id = $1
-    `, [id, disposition]);
-    return this.getOpportunity(id);
+  async updateOpportunityDisposition(
+    id: string,
+    mutation: OpportunityDispositionMutation,
+  ): Promise<OpportunityDispositionState | null> {
+    const client = await this.database.connect();
+    try {
+      await client.query("BEGIN");
+      const currentResult = await client.query<{
+        disposition: OpportunityDisposition;
+        disposition_updated_at: Date;
+        disposition_mutation_id: string | null;
+      }>(`
+        SELECT disposition, disposition_updated_at, disposition_mutation_id
+        FROM opportunities
+        WHERE id = $1
+        FOR UPDATE
+      `, [id]);
+      const current = currentResult.rows[0];
+      if (!current) {
+        await client.query("COMMIT");
+        return null;
+      }
+      const normalizedMutationID = mutation.mutationID.toLowerCase();
+      const isSameMutation = current.disposition_mutation_id === normalizedMutationID;
+      const incomingTime = new Date(mutation.changedAt).getTime();
+      const currentTime = current.disposition_updated_at.getTime();
+      const wins = current.disposition_mutation_id === null
+        || isSameMutation
+        || incomingTime > currentTime
+        || (incomingTime === currentTime && current.disposition_mutation_id < normalizedMutationID);
+      if (wins && !isSameMutation) {
+        await client.query(`
+          UPDATE opportunities
+          SET disposition = $2,
+              disposition_updated_at = $3,
+              disposition_mutation_id = $4,
+              updated_at = now()
+          WHERE id = $1
+        `, [id, mutation.disposition, mutation.changedAt, normalizedMutationID]);
+      }
+      await client.query("COMMIT");
+      return {
+        opportunityID: id,
+        disposition: wins && !isSameMutation ? mutation.disposition : current.disposition,
+        changedAt: wins && !isSameMutation
+          ? new Date(mutation.changedAt).toISOString()
+          : current.disposition_updated_at.toISOString(),
+        mutationID: wins && !isSameMutation ? normalizedMutationID : current.disposition_mutation_id!,
+        outcome: isSameMutation ? "idempotent" : wins ? "applied" : "superseded",
+      };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async listWatchlist(): Promise<WatchlistEntry[]> {
@@ -432,6 +486,8 @@ export class PostgreSqlRepository implements ResearchRepository, EncryptedConfig
         regionalExplanation: row.regional_explanation,
         coverageExplanation: row.coverage_explanation,
         disposition: row.disposition,
+        dispositionUpdatedAt: row.disposition_updated_at.toISOString(),
+        dispositionMutationID: row.disposition_mutation_id,
         isHighPriority: total >= 75 && row.verification === "Confirmed",
       };
     });
