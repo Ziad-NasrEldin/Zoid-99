@@ -111,7 +111,7 @@ struct TodayView: View {
                     Metric(value: "\(store.visibleOpportunities.count)", label: "Active opportunities")
                     Metric(value: "\(store.visibleOpportunities.filter(\.isHighPriority).count)", label: "Immediate alerts")
                     Metric(value: "\(store.sourceHealth.filter { $0.state == .connected }.count)/6", label: "Live sources")
-                    Metric(value: "Fixtures", label: "Current evidence")
+                    Metric(value: store.dataTruth.rawValue, label: "Current evidence")
                 }
 
                 SectionTitle("PRIORITY LEDGER")
@@ -174,6 +174,7 @@ struct OpportunityRow: View {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         StateLabel(text: opportunity.verification.rawValue, urgent: opportunity.verification != .confirmed)
+                        StateLabel(text: opportunity.dataTruth.rawValue, urgent: opportunity.dataTruth.isAttentionRequired)
                         if opportunity.isHighPriority { StateLabel(text: "High priority", urgent: true) }
                         Spacer()
                         Text(opportunity.earliestPublishedAt, style: .relative)
@@ -352,27 +353,32 @@ struct WatchlistsView: View {
                     .overlay(Rectangle().stroke(SumiColor.ink, lineWidth: 1))
                 Button("Add") {
                     guard !newValue.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-                    store.watchlist.append(WatchlistEntry(id: UUID(), kind: kind, value: newValue, highPriority: false))
+                    store.addWatchlist(kind: kind, value: newValue)
                     newValue = ""
-                    store.statusMessage = "Watchlist added"
                 }
                 .buttonStyle(SumiButtonStyle(primary: true))
             }
             Divider().overlay(SumiColor.ink)
             List {
-                ForEach($store.watchlist) { $entry in
+                ForEach(store.watchlist) { entry in
                     HStack {
                         Text(entry.kind.rawValue.uppercased())
                             .font(SumiFont.meta(9))
                             .frame(width: 110, alignment: .leading)
                         Text(entry.value).font(SumiFont.body())
                         Spacer()
-                        Toggle("High priority", isOn: $entry.highPriority)
+                        Toggle(
+                            "High priority",
+                            isOn: Binding(
+                                get: { entry.highPriority },
+                                set: { store.setWatchlistPriority(id: entry.id, highPriority: $0) }
+                            )
+                        )
                             .toggleStyle(.checkbox)
                     }
                     .padding(.vertical, 7)
                 }
-                .onDelete { store.watchlist.remove(atOffsets: $0) }
+                .onDelete(perform: store.removeWatchlist)
             }
             .listStyle(.plain)
         }
@@ -394,7 +400,7 @@ struct NotificationsView: View {
             HStack {
                 Button("Allow notifications") { Task { await store.requestNotifications() } }
                     .buttonStyle(SumiButtonStyle(primary: true))
-                Button("Send test alert") { Task { await store.sendImmediateFixtureNotification() } }
+                Button("Send demo alert") { Task { await store.sendImmediateDemoNotification() } }
                     .buttonStyle(SumiButtonStyle(urgent: true))
             }
             Divider().overlay(SumiColor.ink)
@@ -433,8 +439,16 @@ struct SettingsView: View {
                 SourceHealthLedger(compact: false)
                 SectionTitle("REFRESH & PRIVACY")
                 VStack(alignment: .leading, spacing: 14) {
-                    Stepper("Refresh every \(store.refreshMinutes) minutes", value: $store.refreshMinutes, in: 5...60, step: 5)
-                    Text("Fixtures are stored locally. Live account tokens must be stored in macOS Keychain when connectors are configured.")
+                    Stepper(
+                        "Refresh every \(store.refreshMinutes) minutes",
+                        value: Binding(
+                            get: { store.refreshMinutes },
+                            set: store.setRefreshMinutes
+                        ),
+                        in: 5...60,
+                        step: 5
+                    )
+                    Text("Research, dispositions, watchlists, settings, notification history, and source health are stored locally for offline access. Live account tokens must be stored in macOS Keychain when connectors are configured.")
                         .font(SumiFont.body())
                         .foregroundStyle(SumiColor.mutedInk)
                     Text("Always-on monitoring while this Mac sleeps requires a separately deployed service. It is not active in the local fixture mode.")
@@ -478,6 +492,8 @@ struct SourceHealthLedger: View {
                         .frame(width: compact ? 125 : 150, alignment: .leading)
                     StateLabel(text: health.state.rawValue, urgent: health.state != .connected)
                         .frame(width: compact ? 110 : 120, alignment: .leading)
+                    StateLabel(text: health.dataTruth.rawValue, urgent: health.dataTruth.isAttentionRequired)
+                        .frame(width: compact ? 90 : 100, alignment: .leading)
                     if !compact {
                         Group {
                             if let activity = health.lastActivity {
@@ -531,6 +547,7 @@ struct OpportunityDetailView: View {
                         }
                         HStack {
                             StateLabel(text: opportunity.verification.rawValue, urgent: opportunity.verification != .confirmed)
+                            StateLabel(text: opportunity.dataTruth.rawValue, urgent: opportunity.dataTruth.isAttentionRequired)
                             StateLabel(text: "Score \(opportunity.score.total)", urgent: opportunity.isHighPriority)
                             Text(opportunity.originalSource == nil ? "ORIGIN UNKNOWN" : "ORIGINAL SOURCE IDENTIFIED")
                                 .font(SumiFont.meta(9))
@@ -671,7 +688,7 @@ struct FirstRunView: View {
             "Credentials are optional during setup. Unconfigured sources remain clearly marked as setup required.",
             "Start with AI agents, Egypt, the Gulf, Arabic, and the creators that matter to your research.",
             "Only high-priority confirmed opportunities interrupt you. Lower-priority developments enter a digest.",
-            "Deterministic fixtures work offline. Live credentials belong in Keychain, and an always-on service must be deployed separately."
+            "Local research persists across restarts for offline reading. Demo fixtures are explicitly labeled. Live credentials belong in Keychain, and an always-on service must be deployed separately."
         ][step]
     }
 
@@ -702,7 +719,7 @@ struct FirstRunView: View {
         case 4:
             VStack(alignment: .leading, spacing: 10) {
                 Text("Refresh: every \(store.refreshMinutes) minutes")
-                Text("Fixture mode: active")
+                Text("Current evidence: \(store.dataTruth.rawValue)")
                 Text("Live monitoring service: not deployed")
             }
             .font(SumiFont.body())

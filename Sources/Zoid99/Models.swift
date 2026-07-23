@@ -25,6 +25,20 @@ enum ConnectionState: String, Codable, Sendable {
     case delayed = "Delayed"
 }
 
+enum DataTruth: String, CaseIterable, Codable, Sendable {
+    case fixture = "Fixture"
+    case cached = "Cached"
+    case live = "Live"
+    case missing = "Missing"
+    case delayed = "Delayed"
+    case unavailable = "Unavailable"
+    case rateLimited = "Rate limited"
+
+    var isAttentionRequired: Bool {
+        self != .live && self != .cached
+    }
+}
+
 enum OpportunityDisposition: String, Codable, Sendable {
     case active, saved, watched, dismissed, muted
 }
@@ -46,6 +60,7 @@ struct SourceItem: Identifiable, Codable, Hashable, Sendable {
     let credibility: Double
     let engagement: Int
     let verification: VerificationState
+    var dataTruth: DataTruth = .fixture
 }
 
 struct ScoreBreakdown: Codable, Hashable, Sendable {
@@ -76,6 +91,34 @@ struct Opportunity: Identifiable, Codable, Hashable, Sendable {
     var disposition: OpportunityDisposition
 
     var isHighPriority: Bool { score.total >= 75 && verification == .confirmed }
+    var dataTruth: DataTruth {
+        if items.contains(where: { $0.dataTruth == .live }) { return .live }
+        if items.contains(where: { $0.dataTruth == .cached }) { return .cached }
+        if items.contains(where: { $0.dataTruth == .fixture }) { return .fixture }
+        if items.contains(where: { $0.dataTruth == .rateLimited }) { return .rateLimited }
+        if items.contains(where: { $0.dataTruth == .delayed }) { return .delayed }
+        if items.contains(where: { $0.dataTruth == .unavailable }) { return .unavailable }
+        return .missing
+    }
+
+    func replacingItems(_ items: [SourceItem]) -> Opportunity {
+        Opportunity(
+            id: id,
+            topicKey: topicKey,
+            title: title,
+            brief: brief,
+            verification: verification,
+            earliestPublishedAt: earliestPublishedAt,
+            originalSource: originalSource.map { original in
+                items.first { $0.id == original.id } ?? original
+            },
+            items: items,
+            score: score,
+            regionalExplanation: regionalExplanation,
+            coverageExplanation: coverageExplanation,
+            disposition: disposition
+        )
+    }
 }
 
 struct CommentCluster: Identifiable, Codable, Hashable, Sendable {
@@ -94,6 +137,7 @@ struct SourceHealth: Identifiable, Codable, Hashable, Sendable {
     var lastActivity: Date?
     var evidence: String
     var repairAction: String
+    var dataTruth: DataTruth
 }
 
 struct WatchlistEntry: Identifiable, Codable, Hashable, Sendable {
@@ -124,6 +168,53 @@ struct NotificationRecord: Identifiable, Codable, Hashable, Sendable {
     let delivery: Delivery
     let createdAt: Date
     var isRead: Bool
+}
+
+struct AppSettings: Codable, Hashable, Sendable {
+    var setupComplete: Bool
+    var refreshMinutes: Int
+    var notificationPermissionRequested: Bool
+
+    static let defaults = AppSettings(
+        setupComplete: false,
+        refreshMinutes: 15,
+        notificationPermissionRequested: false
+    )
+}
+
+struct SourceHealthRecord: Identifiable, Codable, Hashable, Sendable {
+    let id: UUID
+    let group: SourceGroup
+    let state: ConnectionState
+    let dataTruth: DataTruth
+    let recordedAt: Date
+    let evidence: String
+}
+
+struct ResearchState: Codable, Hashable, Sendable {
+    var sourceItems: [SourceItem]
+    var opportunities: [Opportunity]
+    var comments: [CommentCluster]
+    var dispositions: [UUID: OpportunityDisposition]
+    var watchlist: [WatchlistEntry]
+    var settings: AppSettings
+    var notificationHistory: [NotificationRecord]
+    var sourceHealth: [SourceHealth]
+    var sourceHealthHistory: [SourceHealthRecord]
+    var lastSuccessfulSyncAt: Date?
+
+    static let empty = ResearchState(
+        sourceItems: [],
+        opportunities: [],
+        comments: [],
+        dispositions: [:],
+        watchlist: [],
+        settings: .defaults,
+        notificationHistory: [],
+        sourceHealth: [],
+        sourceHealthHistory: [],
+        lastSuccessfulSyncAt: nil
+    )
 }
 
 struct ResearchOutput: Sendable {

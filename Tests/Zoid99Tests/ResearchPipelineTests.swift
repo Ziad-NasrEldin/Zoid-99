@@ -48,9 +48,7 @@ final class ResearchPipelineTests: XCTestCase {
 
     @MainActor
     func testDismissAndMuteRemoveOpportunitiesFromVisibleProjection() {
-        let defaults = UserDefaults(suiteName: #function)!
-        defaults.removePersistentDomain(forName: #function)
-        let store = AppStore(defaults: defaults)
+        let store = AppStore(persistence: MemoryPersistence())
         let first = store.visibleOpportunities[0]
         store.updateDisposition(.dismissed, id: first.id)
         XCTAssertFalse(store.visibleOpportunities.contains { $0.id == first.id })
@@ -77,6 +75,10 @@ final class ResearchPipelineTests: XCTestCase {
         XCTAssertFalse(ConnectionState.unavailable.rawValue.isEmpty)
         XCTAssertFalse(ConnectionState.rateLimited.rawValue.isEmpty)
         XCTAssertFalse(ConnectionState.delayed.rawValue.isEmpty)
+        XCTAssertEqual(
+            Set(DataTruth.allCases.map(\.rawValue)),
+            ["Fixture", "Cached", "Live", "Missing", "Delayed", "Unavailable", "Rate limited"]
+        )
     }
 
     func testArabicFixtureRetainsLanguageAndTextDirectionSignal() {
@@ -84,5 +86,155 @@ final class ResearchPipelineTests: XCTestCase {
         XCTAssertFalse(arabic.isEmpty)
         XCTAssertTrue(arabic.allSatisfy { $0.country == "EG" })
         XCTAssertTrue(arabic.allSatisfy { $0.title.contains("؟") })
+    }
+
+    @MainActor
+    func testDurableRestartRestoresDispositionWatchlistSettingsAndHistory() async {
+        let persistence = MemoryPersistence()
+        let firstLaunch = AppStore(persistence: persistence)
+        let opportunity = firstLaunch.visibleOpportunities[0]
+        firstLaunch.updateDisposition(.saved, id: opportunity.id)
+        firstLaunch.addWatchlist(kind: .keyword, value: "local inference")
+        firstLaunch.setRefreshMinutes(30)
+        await firstLaunch.refresh()
+
+        let restarted = AppStore(persistence: persistence, loadDemoDataWhenEmpty: false)
+
+        XCTAssertEqual(restarted.opportunities.first { $0.id == opportunity.id }?.disposition, .saved)
+        XCTAssertTrue(restarted.watchlist.contains { $0.value == "local inference" })
+        XCTAssertEqual(restarted.refreshMinutes, 30)
+        XCTAssertEqual(restarted.sourceHealthHistory.count, SourceGroup.allCases.count)
+        XCTAssertEqual(restarted.statusMessage, "Offline cache loaded")
+    }
+
+    func testJSONPersistenceRoundTripAndV1Migration() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("state.json")
+        let persistence = JSONResearchPersistence(fileURL: url)
+        let pipeline = ResearchPipeline().run(items: ResearchFixtures.allSix, now: ResearchFixtures.now)
+        let state = ResearchState(
+            sourceItems: pipeline.normalizedItems,
+            opportunities: pipeline.opportunities,
+            comments: pipeline.comments,
+            dispositions: [pipeline.opportunities[0].id: .watched],
+            watchlist: DemoFixtures.watchlist,
+            settings: AppSettings(setupComplete: true, refreshMinutes: 25, notificationPermissionRequested: true),
+            notificationHistory: pipeline.notifications,
+            sourceHealth: [],
+            sourceHealthHistory: [],
+            lastSuccessfulSyncAt: ResearchFixtures.now
+        )
+
+        try persistence.save(state)
+        XCTAssertEqual(try persistence.load(), state)
+
+        let v1 = PersistenceDocumentV1(
+            schemaVersion: 1,
+            sourceItems: state.sourceItems,
+            opportunities: state.opportunities,
+            comments: state.comments,
+            dispositions: state.dispositions,
+            watchlist: state.watchlist,
+            settings: state.settings,
+            notificationHistory: state.notificationHistory,
+            sourceHealth: state.sourceHealth
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .millisecondsSince1970
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try encoder.encode(v1).write(to: url, options: .atomic)
+
+        let migrated = try XCTUnwrap(persistence.load())
+        XCTAssertEqual(migrated.sourceHealthHistory, [])
+        XCTAssertNil(migrated.lastSuccessfulSyncAt)
+        XCTAssertEqual(migrated.dispositions, state.dispositions)
+    }
+
+    @MainActor
+    func testLiveSyncBecomesCachedAfterRestartAndRetainsOfflineReads() async {
+        let persistence = MemoryPersistence()
+        let sync = StubSync(results: SourceGroup.allCases.map { group in
+            let items = ResearchFixtures.allSix.filter { $0.group == group }.map {
+                var item = $0
+                item.dataTruth = .live
+                return item
+            }
+            return SourceSyncResult(
+                group: group,
+                collectedAt: ResearchFixtures.now,
+                items: items,
+                state: .connected,
+                dataTruth: .live,
+                evidence: "\(items.count) live items received."
+            )
+        })
+        let firstLaunch = AppStore(
+            persistence: persistence,
+            sync: sync,
+            loadDemoDataWhenEmpty: false
+        )
+
+        await firstLaunch.refresh()
+        XCTAssertEqual(firstLaunch.dataTruth, .live)
+        XCTAssertFalse(firstLaunch.opportunities.isEmpty)
+        XCTAssertTrue(firstLaunch.sourceHealth.allSatisfy { $0.dataTruth == .live })
+
+        let restarted = AppStore(persistence: persistence, loadDemoDataWhenEmpty: false)
+        XCTAssertEqual(restarted.dataTruth, .cached)
+        XCTAssertEqual(restarted.opportunities.count, firstLaunch.opportunities.count)
+        XCTAssertTrue(restarted.opportunities.allSatisfy { $0.dataTruth == .cached })
+        XCTAssertTrue(restarted.sourceHealth.allSatisfy { $0.dataTruth == .cached })
+    }
+
+    @MainActor
+    func testSyncBoundaryPreservesExplicitMissingDelayedUnavailableAndRateLimitedTruth() async {
+        let truths: [DataTruth] = [.missing, .delayed, .unavailable, .rateLimited, .cached, .fixture]
+        let states: [ConnectionState] = [.setupRequired, .delayed, .unavailable, .rateLimited, .delayed, .setupRequired]
+        let results = zip(SourceGroup.allCases, zip(truths, states)).map { group, pair in
+            SourceSyncResult(
+                group: group,
+                collectedAt: ResearchFixtures.now,
+                items: [],
+                state: pair.1,
+                dataTruth: pair.0,
+                evidence: "\(pair.0.rawValue) test state."
+            )
+        }
+        let store = AppStore(
+            persistence: MemoryPersistence(),
+            sync: StubSync(results: results),
+            loadDemoDataWhenEmpty: false
+        )
+
+        await store.refresh()
+
+        XCTAssertEqual(store.sourceHealth.map(\.dataTruth), truths)
+        XCTAssertEqual(store.sourceHealth.map(\.state), states)
+        XCTAssertEqual(store.sourceHealthHistory.map(\.dataTruth), truths)
+        XCTAssertEqual(store.dataTruth, .missing)
+        XCTAssertEqual(store.statusMessage, "No live data received - offline data retained")
+    }
+}
+
+private final class MemoryPersistence: ResearchPersistence, @unchecked Sendable {
+    private var state: ResearchState?
+    private let lock = NSLock()
+
+    func load() throws -> ResearchState? {
+        lock.withLock { state }
+    }
+
+    func save(_ state: ResearchState) throws {
+        lock.withLock { self.state = state }
+    }
+}
+
+private struct StubSync: ResearchSyncing {
+    let results: [SourceSyncResult]
+
+    func synchronize() async -> [SourceSyncResult] {
+        results
     }
 }
