@@ -16,6 +16,12 @@ final class AppStore: ObservableObject {
     @Published var searchText = ""
     @Published var setupComplete = false
     @Published var refreshMinutes = 15
+    @Published var notificationsEnabled = false
+    @Published var notificationPermission: NotificationPermissionState = .notDetermined
+    @Published var quietHoursEnabled = true
+    @Published var quietStartHour = 22
+    @Published var quietEndHour = 8
+    @Published var digestHour = 18
     @Published var statusMessage = "Ready"
     @Published var isRefreshing = false
     @Published private(set) var dataTruth: DataTruth = .missing
@@ -27,14 +33,17 @@ final class AppStore: ObservableObject {
     private let pipeline = ResearchPipeline()
     private let persistence: any ResearchPersistence
     private let sync: any ResearchSyncing
+    private let notificationDelivery: any NotificationDelivering
 
     init(
         persistence: any ResearchPersistence = JSONResearchPersistence.production(),
         sync: any ResearchSyncing = NoopResearchSync(),
+        notificationDelivery: any NotificationDelivering = UnavailableNotificationDelivery(),
         loadDemoDataWhenEmpty: Bool = true
     ) {
         self.persistence = persistence
         self.sync = sync
+        self.notificationDelivery = notificationDelivery
         do {
             if let stored = try persistence.load() {
                 applyStoredState(stored)
@@ -90,7 +99,7 @@ final class AppStore: ObservableObject {
             let output = pipeline.run(items: liveItems)
             opportunities = output.opportunities.map(applyingStoredDisposition)
             comments = output.comments
-            appendNewNotifications(output.notifications)
+            await processNotifications(output.notifications)
             lastSuccessfulSyncAt = results.map(\.collectedAt).max()
         }
 
@@ -158,29 +167,101 @@ final class AppStore: ObservableObject {
 
     func requestNotifications() async {
         settings.notificationPermissionRequested = true
-        persistReportingFailure()
         do {
-            let allowed = try await UNUserNotificationCenter.current()
-                .requestAuthorization(options: [.alert, .sound, .badge])
-            statusMessage = allowed ? "Notifications allowed" : "Notifications not allowed"
+            notificationPermission = try await notificationDelivery.requestPermission()
+            notificationsEnabled = notificationPermission == .authorized || notificationPermission == .provisional
+            settings.notificationPermission = notificationPermission
+            settings.notificationsEnabled = notificationsEnabled
+            statusMessage = notificationPermission == .authorized || notificationPermission == .provisional
+                ? "Notifications allowed"
+                : "Notifications blocked by macOS"
+            if notificationsEnabled {
+                let eligible = notifications.filter { record in
+                    opportunities.first(where: { $0.id == record.opportunityID })?.dataTruth != .fixture
+                }
+                await processNotifications(eligible)
+            }
         } catch {
-            statusMessage = "Notification permission error"
+            notificationPermission = .unavailable
+            settings.notificationPermission = .unavailable
+            statusMessage = "macOS notification permission is unavailable"
         }
+        persistReportingFailure()
     }
 
     func sendImmediateDemoNotification() async {
         guard let record = notifications.first(where: { $0.delivery == .immediate }) else { return }
-        let content = UNMutableNotificationContent()
-        content.title = "Zoid 99 - High-priority opportunity"
-        content.body = record.title
-        content.sound = .default
-        let request = UNNotificationRequest(identifier: record.id.uuidString, content: content, trigger: nil)
-        do {
-            try await UNUserNotificationCenter.current().add(request)
-            statusMessage = "Demo alert delivered"
-        } catch {
-            statusMessage = "Notification delivery error"
+        guard notificationsEnabled else {
+            statusMessage = "Turn on notifications before sending a native test"
+            return
         }
+        let request = NativeNotificationRequest(
+            identifier: "manual-\(UUID().uuidString)",
+            title: "Zoid 99 - Native test",
+            body: record.title,
+            scheduledAt: .now,
+            deepLink: URL(string: "zoid99://opportunity/\(record.opportunityID.uuidString)")!
+        )
+        do {
+            try await notificationDelivery.schedule(request)
+            statusMessage = "Native test scheduled - click it to verify the deep link"
+        } catch {
+            statusMessage = "macOS could not schedule the native test"
+        }
+    }
+
+    func setNotificationsEnabled(_ enabled: Bool) {
+        notificationsEnabled = enabled && (notificationPermission == .authorized || notificationPermission == .provisional)
+        settings.notificationsEnabled = notificationsEnabled
+        statusMessage = notificationsEnabled
+            ? "Notifications enabled"
+            : enabled ? "Allow notifications in macOS first" : "Notifications disabled"
+        persistReportingFailure()
+    }
+
+    func setQuietHoursEnabled(_ enabled: Bool) {
+        quietHoursEnabled = enabled
+        settings.quietHoursEnabled = enabled
+        persistReportingFailure()
+    }
+
+    func setQuietStartHour(_ hour: Int) {
+        quietStartHour = min(23, max(0, hour))
+        settings.quietStartHour = quietStartHour
+        persistReportingFailure()
+    }
+
+    func setQuietEndHour(_ hour: Int) {
+        quietEndHour = min(23, max(0, hour))
+        settings.quietEndHour = quietEndHour
+        persistReportingFailure()
+    }
+
+    func setDigestHour(_ hour: Int) {
+        digestHour = min(23, max(0, hour))
+        settings.digestHour = digestHour
+        persistReportingFailure()
+    }
+
+    func openNotificationDeepLink(_ url: URL) {
+        guard url.scheme == "zoid99",
+              url.host == "opportunity",
+              let id = UUID(uuidString: url.lastPathComponent),
+              opportunities.contains(where: { $0.id == id })
+        else {
+            statusMessage = "Notification destination is no longer available"
+            return
+        }
+        selectedOpportunityID = id
+        selectedDestination = .today
+        if let index = notifications.firstIndex(where: { $0.opportunityID == id }) {
+            notifications[index].isRead = true
+            notifications[index].deliveredAt = .now
+            notifications[index].deliveryState = .delivered
+            notifications[index].statusDetail = "Opened in Opportunity Detail."
+        }
+        statusMessage = "Opened notification opportunity"
+        persistReportingFailure()
     }
 
     private func applyDemoState() {
@@ -193,6 +274,7 @@ final class AppStore: ObservableObject {
         settings = .defaults
         setupComplete = settings.setupComplete
         refreshMinutes = settings.refreshMinutes
+        applyNotificationSettings()
         sourceHealth = SourceGroup.allCases.map { group in
             let count = output.normalizedItems.filter { $0.group == group }.count
             return SourceHealth(
@@ -241,6 +323,7 @@ final class AppStore: ObservableObject {
         settings = stored.settings
         setupComplete = settings.setupComplete
         refreshMinutes = settings.refreshMinutes
+        applyNotificationSettings()
         lastSuccessfulSyncAt = stored.lastSuccessfulSyncAt
         dataTruth = aggregateTruth(sourceHealth.map(\.dataTruth))
     }
@@ -251,9 +334,24 @@ final class AppStore: ObservableObject {
         return result
     }
 
-    private func appendNewNotifications(_ candidates: [NotificationRecord]) {
-        let existingOpportunityIDs = Set(notifications.map(\.opportunityID))
-        notifications.append(contentsOf: candidates.filter { !existingOpportunityIDs.contains($0.opportunityID) })
+    private func processNotifications(_ candidates: [NotificationRecord]) async {
+        let result = await NotificationCoordinator(delivery: notificationDelivery).process(
+            candidates: candidates,
+            existing: notifications,
+            settings: settings
+        )
+        notifications = result.records
+        notificationPermission = result.permission
+        settings.notificationPermission = result.permission
+    }
+
+    private func applyNotificationSettings() {
+        notificationsEnabled = settings.notificationsEnabled
+        notificationPermission = settings.notificationPermission
+        quietHoursEnabled = settings.quietHoursEnabled
+        quietStartHour = settings.quietStartHour
+        quietEndHour = settings.quietEndHour
+        digestHour = settings.digestHour
     }
 
     private func recordSourceHealth(_ results: [SourceSyncResult]) {
@@ -301,6 +399,12 @@ final class AppStore: ObservableObject {
     private func persist() throws {
         settings.setupComplete = setupComplete
         settings.refreshMinutes = refreshMinutes
+        settings.notificationsEnabled = notificationsEnabled
+        settings.notificationPermission = notificationPermission
+        settings.quietHoursEnabled = quietHoursEnabled
+        settings.quietStartHour = quietStartHour
+        settings.quietEndHour = quietEndHour
+        settings.digestHour = digestHour
         try persistence.save(
             ResearchState(
                 sourceItems: sourceItems,

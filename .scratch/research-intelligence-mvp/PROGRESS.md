@@ -66,10 +66,10 @@ No named implementation task remains active as of this update.
 | 23. Research a topic across connected sources | remaining | Topic surface exists, but complete cross-source query behavior was not evidenced; see issue 003. |
 | 24. Save, watch, dismiss, or mute an Opportunity | integrated | Local durable dispositions are on main in `5aba082`; backend persistence remains in issue 005. |
 | 25. Manage monitoring watchlists | remaining | Local watchlist foundations exist on main, but the full editable set and provider wiring are incomplete; see issue 004. |
-| 26. Send immediate high-priority alerts | implemented-but-not-integrated | Deterministic notification selection is in `8db1159`; native delivery, permission, and deep-link proof remain. |
-| 27. Group lower-priority developments into digests | implemented-but-not-integrated | Digest decisions are in `8db1159`; scheduling and native delivery remain. |
+| 26. Send immediate high-priority alerts | implemented-but-not-integrated | Native scheduling, permission truth, durable deduplication, and deep-link handling are implemented on issue 007; final OS-permission acceptance remains. |
+| 27. Group lower-priority developments into digests | implemented-but-not-integrated | Digest decisions now schedule as one grouped native notification with durable per-opportunity history; final OS-permission acceptance remains. |
 | 28. Show source-connection health | implemented-but-not-integrated | Source Health Ledger is on main; real sync truth is in `200f5ee`; repair workflows remain. |
-| 29. Configure notification and refresh preferences | remaining | Basic refresh storage is on main, but quiet hours, urgency, and complete notification preferences are not implemented. |
+| 29. Configure notification and refresh preferences | implemented-but-not-integrated | Issue 007 adds persisted opt-in, permission state, quiet hours, and digest time; user confirmation of preferred hours remains. |
 | 30. Monitor while the Mac sleeps | remaining | `200f5ee` explicitly runs only while the app is open; always-on hosting is unresolved. |
 | 31. Store credentials securely | remaining | Connector contracts document Keychain/encrypted-server boundaries, but production secret storage and rotation are not complete. |
 | 32. Retain source links in every Research Brief | implemented-but-not-integrated | Main retains source links; `8db1159` adds citation enforcement and evaluation coverage. |

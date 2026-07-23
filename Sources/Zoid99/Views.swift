@@ -47,6 +47,9 @@ struct MainShellView: View {
         .onChange(of: selection) { _, value in
             if let value { store.selectedDestination = value }
         }
+        .onChange(of: store.selectedDestination) { _, value in
+            selection = value
+        }
     }
 
     @ViewBuilder
@@ -398,22 +401,50 @@ struct NotificationsView: View {
                 subtitle: "Immediate interruption for strong opportunities; everything else enters a digest."
             )
             HStack {
-                Button("Allow notifications") { Task { await store.requestNotifications() } }
+                StateLabel(
+                    text: store.notificationPermission.rawValue,
+                    urgent: store.notificationPermission != .authorized
+                )
+                Button(
+                    store.notificationPermission == .notDetermined
+                        ? "Allow notifications"
+                        : "Check permission again"
+                ) {
+                    Task { await store.requestNotifications() }
+                }
                     .buttonStyle(SumiButtonStyle(primary: true))
-                Button("Send demo alert") { Task { await store.sendImmediateDemoNotification() } }
+                Button("Send native test") { Task { await store.sendImmediateDemoNotification() } }
                     .buttonStyle(SumiButtonStyle(urgent: true))
+                    .disabled(!store.notificationsEnabled)
             }
             Divider().overlay(SumiColor.ink)
             List(store.notifications) { record in
-                HStack(alignment: .top) {
+                HStack(alignment: .top, spacing: 14) {
                     StateLabel(text: record.delivery.rawValue, urgent: record.delivery == .immediate)
                     VStack(alignment: .leading, spacing: 5) {
                         Text(record.title).font(SumiFont.body(15))
-                        Text(record.createdAt, style: .relative)
+                        HStack {
+                            StateLabel(
+                                text: record.deliveryState.rawValue,
+                                urgent: record.deliveryState == .failed
+                            )
+                            Text(record.statusDetail)
+                            if let scheduledAt = record.scheduledAt {
+                                Text("·")
+                                Text(scheduledAt, style: .relative)
+                            }
+                        }
                             .font(SumiFont.meta(9))
                             .foregroundStyle(SumiColor.mutedInk)
                     }
                     Spacer()
+                    Button(record.isRead ? "Opened" : "Open detail") {
+                        store.openNotificationDeepLink(
+                            URL(string: "zoid99://opportunity/\(record.opportunityID.uuidString)")!
+                        )
+                    }
+                    .buttonStyle(SumiButtonStyle())
+                    .disabled(record.isRead)
                 }
                 .padding(.vertical, 7)
             }
@@ -435,6 +466,78 @@ struct SettingsView: View {
                     title: "Sources & Settings",
                     subtitle: "Connection health, evidence, repair actions, refresh, and privacy."
                 )
+                SectionTitle("NOTIFICATIONS")
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack {
+                        Toggle(
+                            "Enable native alerts and digests",
+                            isOn: Binding(
+                                get: { store.notificationsEnabled },
+                                set: store.setNotificationsEnabled
+                            )
+                        )
+                        Spacer()
+                        StateLabel(
+                            text: store.notificationPermission.rawValue,
+                            urgent: store.notificationPermission != .authorized
+                        )
+                    }
+                    if store.notificationPermission == .notDetermined {
+                        Button("Allow macOS notifications") {
+                            Task { await store.requestNotifications() }
+                        }
+                        .buttonStyle(SumiButtonStyle(primary: true))
+                    } else if store.notificationPermission == .denied {
+                        Text("macOS is blocking delivery. Open System Settings > Notifications > Zoid 99 to allow it, then check permission again.")
+                            .font(SumiFont.body())
+                            .foregroundStyle(SumiColor.sealDeep)
+                        Button("Check permission again") {
+                            Task { await store.requestNotifications() }
+                        }
+                        .buttonStyle(SumiButtonStyle())
+                    }
+                    Divider().overlay(SumiColor.rule)
+                    Toggle(
+                        "Quiet hours",
+                        isOn: Binding(
+                            get: { store.quietHoursEnabled },
+                            set: store.setQuietHoursEnabled
+                        )
+                    )
+                    HStack {
+                        Stepper(
+                            "Start \(hourLabel(store.quietStartHour))",
+                            value: Binding(
+                                get: { store.quietStartHour },
+                                set: store.setQuietStartHour
+                            ),
+                            in: 0...23
+                        )
+                        Stepper(
+                            "End \(hourLabel(store.quietEndHour))",
+                            value: Binding(
+                                get: { store.quietEndHour },
+                                set: store.setQuietEndHour
+                            ),
+                            in: 0...23
+                        )
+                        Stepper(
+                            "Digest \(hourLabel(store.digestHour))",
+                            value: Binding(
+                                get: { store.digestHour },
+                                set: store.setDigestHour
+                            ),
+                            in: 0...23
+                        )
+                    }
+                    .disabled(!store.notificationsEnabled)
+                    Text("Confirmed high-priority opportunities alert immediately outside quiet hours. Lower-priority opportunities are grouped into the next daily digest.")
+                        .font(SumiFont.body())
+                        .foregroundStyle(SumiColor.mutedInk)
+                }
+                .padding(16)
+                .background(SumiColor.softPaper)
+                .overlay(Rectangle().stroke(SumiColor.rule, lineWidth: 1))
                 Divider().overlay(SumiColor.ink)
                 SourceHealthLedger(compact: false)
                 SectionTitle("REFRESH & PRIVACY")
@@ -462,6 +565,10 @@ struct SettingsView: View {
             .padding(30)
         }
         .sumiPage()
+    }
+
+    private func hourLabel(_ hour: Int) -> String {
+        String(format: "%02d:00", hour)
     }
 }
 
