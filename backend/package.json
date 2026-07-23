@@ -11,10 +11,13 @@
     "check": "tsc -p tsconfig.json --noEmit",
     "dev": "tsx watch src/main.ts",
     "migrate": "tsx src/migrate.ts",
+    "config:validate": "tsx src/validate-config.ts",
+    "secrets:rotate-key": "tsx src/rotate-encryption-key.ts",
     "start": "node dist/src/main.js",
     "test": "node --import tsx --test test/**/*.test.ts"
   },
   "dependencies": {
+    "fast-xml-parser": "^5.10.1",
     "fastify": "5.10.0",
     "pg": "8.16.3",
     "zod": "4.1.12"

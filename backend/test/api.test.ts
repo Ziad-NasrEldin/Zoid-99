@@ -12,7 +12,11 @@ test("health is public but research data is protected", async (context) => {
 
   const health = await app.inject({ method: "GET", url: "/health" });
   assert.equal(health.statusCode, 200);
-  assert.deepEqual(health.json(), { status: "ok" });
+  assert.deepEqual(health.json(), {
+    status: "ok",
+    service: "zoid99-backend",
+    version: "development",
+  });
 
   const protectedResponse = await app.inject({ method: "GET", url: "/v1/bootstrap" });
   assert.equal(protectedResponse.statusCode, 401);
@@ -20,6 +24,23 @@ test("health is public but research data is protected", async (context) => {
     error: "unauthorized",
     message: "A valid bearer token is required",
   });
+});
+
+test("a staged previous machine credential remains valid during rotation", async (context) => {
+  const previousKey = "previous-machine-credential-with-more-than-32-characters";
+  const app = buildApi({
+    repository: new MemoryRepository(),
+    apiToken,
+    authenticationKeys: [apiToken, previousKey],
+  });
+  context.after(() => app.close());
+
+  const response = await app.inject({
+    method: "GET",
+    url: "/v1/bootstrap",
+    headers: { authorization: `Bearer ${previousKey}` },
+  });
+  assert.equal(response.statusCode, 200);
 });
 
 test("readiness reports database failure without leaking internal details", async (context) => {
@@ -34,6 +55,21 @@ test("readiness reports database failure without leaking internal details", asyn
     error: "service_unavailable",
     message: "Database is unavailable",
   });
+});
+
+test("health endpoints expose stable machine-readable service metadata", async (context) => {
+  const app = buildApi({
+    repository: new MemoryRepository(),
+    apiToken,
+    serviceVersion: "test-sha",
+  });
+  context.after(() => app.close());
+
+  const live = await app.inject({ method: "GET", url: "/health" });
+  assert.deepEqual(live.json(), { status: "ok", service: "zoid99-backend", version: "test-sha" });
+
+  const ready = await app.inject({ method: "GET", url: "/ready" });
+  assert.deepEqual(ready.json(), { status: "ready", service: "zoid99-backend", version: "test-sha" });
 });
 
 test("bootstrap preserves the existing macOS model contract", async (context) => {

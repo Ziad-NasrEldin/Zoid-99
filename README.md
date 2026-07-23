@@ -23,6 +23,9 @@ The production data and API foundation lives in `backend/`.
 It provides PostgreSQL migrations, authenticated macOS-facing API contracts, encrypted connector configuration storage, and deterministic local setup.
 The macOS ingestion worker joins the credential-free official-feed connectors to this backend.
 It authenticates ingestion and bootstrap requests, persists normalized evidence and opportunities, and uses conditional refreshes when backend state has not changed.
+
+The server also supports collection of the verified credential-free official catalog, a non-overlapping scheduler, a hardened container, and executable operations workflows.
+Credentialed provider collectors remain separate work and are not presented as live.
 See `backend/README.md` for environment variables and startup instructions.
 
 ## Live integration status
