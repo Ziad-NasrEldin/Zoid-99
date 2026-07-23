@@ -59,3 +59,12 @@ Use a managed PostgreSQL service with encrypted backups and TLS.
 Store the API token, database URL, and encryption key in the deployment platform's secret manager.
 Rotate the API token by updating the service and macOS Keychain together.
 Rotating the encryption key requires decrypting and re-encrypting stored configuration in a controlled maintenance operation.
+
+## YouTube credential handoff
+
+The YouTube connector accepts either a public-data API key or a short-lived OAuth access token at runtime.
+Persist API keys only through `EncryptedConfigService` under `youtube.api-key`.
+Persist OAuth refresh tokens only through `EncryptedConfigService` under `youtube.oauth-refresh-token`.
+Never persist access tokens when they can be refreshed, and never expose any encrypted or decrypted connector secret through `/v1` responses or logs.
+The backend OAuth boundary is responsible for consent, refresh-token exchange, expiry handling, and revocation.
+The macOS-only alternative stores the credential in Keychain service `com.zoid99.youtube-data-api`.
