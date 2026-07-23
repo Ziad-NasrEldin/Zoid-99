@@ -22,20 +22,28 @@ final class AppStore: ObservableObject {
 
     private var sourceItems: [SourceItem] = []
     private var dispositions: [UUID: OpportunityDisposition] = [:]
+    private var pendingDispositionMutations: [OpportunityDispositionMutation] = []
+    private var isSyncingDispositions = false
     private var settings = AppSettings.defaults
     private var lastSuccessfulSyncAt: Date?
     private let pipeline = ResearchPipeline()
     private let persistence: any ResearchPersistence
     private let sync: any ResearchSyncing
+    private let dispositionSync: any OpportunityDispositionSyncing
+    private let now: @Sendable () -> Date
     private var scheduledRefreshTask: Task<Void, Never>?
 
     init(
         persistence: any ResearchPersistence = JSONResearchPersistence.production(),
         sync: any ResearchSyncing = ProductionResearchSync(),
+        dispositionSync: any OpportunityDispositionSyncing = OpportunityDispositionSyncFactory.production(),
+        now: @escaping @Sendable () -> Date = { .now },
         loadDemoDataWhenEmpty: Bool = true
     ) {
         self.persistence = persistence
         self.sync = sync
+        self.dispositionSync = dispositionSync
+        self.now = now
         do {
             if let stored = try persistence.load() {
                 applyStoredState(stored)
@@ -126,14 +134,73 @@ final class AppStore: ObservableObject {
             : aggregateTruth(sourceHealth.map(\.dataTruth))
         statusMessage = liveItems.isEmpty ? "No live data received - offline data retained" : "Live sync complete"
         persistReportingFailure()
+        await synchronizePendingDispositions()
         isRefreshing = false
     }
 
     func updateDisposition(_ disposition: OpportunityDisposition, id: UUID) {
         guard let index = opportunities.firstIndex(where: { $0.id == id }) else { return }
+        let mutation = OpportunityDispositionMutation(
+            id: UUID(),
+            opportunityID: id,
+            disposition: disposition,
+            changedAt: now()
+        )
         opportunities[index].disposition = disposition
+        opportunities[index].dispositionUpdatedAt = mutation.changedAt
+        opportunities[index].dispositionMutationID = mutation.id
         dispositions[id] = disposition
-        statusMessage = disposition == .dismissed ? "Opportunity dismissed" : "Opportunity \(disposition.rawValue)"
+        pendingDispositionMutations.removeAll { $0.opportunityID == id }
+        pendingDispositionMutations.append(mutation)
+        statusMessage = "Opportunity \(disposition.writtenState) - syncing"
+        persistReportingFailure()
+        Task { await synchronizePendingDispositions() }
+    }
+
+    func synchronizePendingDispositions() async {
+        guard !isSyncingDispositions else { return }
+        isSyncingDispositions = true
+        defer { isSyncingDispositions = false }
+        var latestSynchronizedMutation: OpportunityDispositionMutation?
+        var shouldPullCanonicalState = true
+        repeat {
+            let pending = pendingDispositionMutations
+            let result = await dispositionSync.reconcile(pending)
+            pendingDispositionMutations.removeAll { result.acknowledgedMutationIDs.contains($0.id) }
+            for state in result.states {
+                let newerPending = pendingDispositionMutations.contains {
+                    $0.opportunityID == state.opportunityID
+                        && ($0.changedAt > state.changedAt
+                            || ($0.changedAt == state.changedAt && $0.id.uuidString > state.mutationID.uuidString))
+                }
+                guard !newerPending,
+                      let index = opportunities.firstIndex(where: { $0.id == state.opportunityID }) else { continue }
+                opportunities[index].disposition = state.disposition
+                opportunities[index].dispositionUpdatedAt = state.changedAt
+                opportunities[index].dispositionMutationID = state.mutationID
+                dispositions[state.opportunityID] = state.disposition
+            }
+            latestSynchronizedMutation = pending
+                .filter { result.acknowledgedMutationIDs.contains($0.id) }
+                .max(by: mutationOrder) ?? latestSynchronizedMutation
+            persistReportingFailure()
+
+            if result.errorMessage != nil {
+                if !pendingDispositionMutations.isEmpty {
+                    statusMessage = "\(latestPendingWrittenState) - queued for sync"
+                }
+                break
+            }
+            if !pending.isEmpty && result.acknowledgedMutationIDs.isEmpty {
+                statusMessage = "\(latestPendingWrittenState) - queued for sync"
+                break
+            }
+            shouldPullCanonicalState = false
+        } while !pendingDispositionMutations.isEmpty || shouldPullCanonicalState
+
+        if pendingDispositionMutations.isEmpty, let latestSynchronizedMutation {
+            statusMessage = "Opportunity \(latestSynchronizedMutation.disposition.writtenState) - synced"
+        }
         persistReportingFailure()
     }
 
@@ -230,6 +297,7 @@ final class AppStore: ObservableObject {
             return item
         }
         dispositions = stored.dispositions
+        pendingDispositionMutations = stored.pendingDispositionMutations ?? []
         opportunities = stored.opportunities.map { opportunity in
             var cached = opportunity
             cached.disposition = stored.dispositions[opportunity.id] ?? opportunity.disposition
@@ -328,9 +396,35 @@ final class AppStore: ObservableObject {
                 notificationHistory: notifications,
                 sourceHealth: sourceHealth,
                 sourceHealthHistory: sourceHealthHistory,
-                lastSuccessfulSyncAt: lastSuccessfulSyncAt
+                lastSuccessfulSyncAt: lastSuccessfulSyncAt,
+                pendingDispositionMutations: pendingDispositionMutations
             )
         )
+    }
+
+    private var latestPendingWrittenState: String {
+        guard let latest = pendingDispositionMutations.max(by: mutationOrder) else { return "Disposition" }
+        return "Opportunity \(latest.disposition.writtenState)"
+    }
+
+    private func mutationOrder(
+        _ left: OpportunityDispositionMutation,
+        _ right: OpportunityDispositionMutation
+    ) -> Bool {
+        if left.changedAt != right.changedAt { return left.changedAt < right.changedAt }
+        return left.id.uuidString < right.id.uuidString
+    }
+}
+
+private extension OpportunityDisposition {
+    var writtenState: String {
+        switch self {
+        case .active: "active"
+        case .saved: "saved"
+        case .watched: "watched"
+        case .dismissed: "dismissed"
+        case .muted: "muted"
+        }
     }
 }
 

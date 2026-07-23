@@ -3,6 +3,8 @@ import type {
   NotificationRecord,
   Opportunity,
   OpportunityDisposition,
+  OpportunityDispositionMutation,
+  OpportunityDispositionState,
   ResearchBatch,
   SourceHealth,
   WatchlistEntry,
@@ -17,7 +19,10 @@ export interface ResearchRepository {
   listSourceHealth(): Promise<SourceHealth[]>;
   listOpportunities(disposition?: OpportunityDisposition): Promise<Opportunity[]>;
   getOpportunity(id: string): Promise<Opportunity | null>;
-  updateOpportunityDisposition(id: string, disposition: OpportunityDisposition): Promise<Opportunity | null>;
+  updateOpportunityDisposition(
+    id: string,
+    mutation: OpportunityDispositionMutation,
+  ): Promise<OpportunityDispositionState | null>;
   listWatchlist(): Promise<WatchlistEntry[]>;
   createWatchlist(input: Omit<WatchlistEntry, "id">): Promise<WatchlistEntry>;
   deleteWatchlist(id: string): Promise<boolean>;

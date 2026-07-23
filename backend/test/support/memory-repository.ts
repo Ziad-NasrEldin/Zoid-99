@@ -3,6 +3,8 @@ import type {
   NotificationRecord,
   Opportunity,
   OpportunityDisposition,
+  OpportunityDispositionMutation,
+  OpportunityDispositionState,
   ResearchBatch,
   SourceHealth,
   WatchlistEntry,
@@ -48,6 +50,8 @@ export const fixtureOpportunity: Opportunity = {
   regionalExplanation: "Relevant to Egypt and Gulf audiences.",
   coverageExplanation: "No Arabic-language coverage appears in the evidence.",
   disposition: "active",
+  dispositionUpdatedAt: "2026-07-23T08:10:00.000Z",
+  dispositionMutationID: null,
   isHighPriority: true,
 };
 
@@ -144,11 +148,32 @@ export class MemoryRepository implements ResearchRepository {
     return structuredClone(this.opportunities.find((opportunity) => opportunity.id === id) ?? null);
   }
 
-  async updateOpportunityDisposition(id: string, disposition: OpportunityDisposition): Promise<Opportunity | null> {
+  async updateOpportunityDisposition(
+    id: string,
+    mutation: OpportunityDispositionMutation,
+  ): Promise<OpportunityDispositionState | null> {
     const opportunity = this.opportunities.find((candidate) => candidate.id === id);
     if (!opportunity) return null;
-    opportunity.disposition = disposition;
-    return structuredClone(opportunity);
+    const currentTime = new Date(opportunity.dispositionUpdatedAt).getTime();
+    const incomingTime = new Date(mutation.changedAt).getTime();
+    const normalizedMutationID = mutation.mutationID.toLowerCase();
+    const isSameMutation = opportunity.dispositionMutationID?.toLowerCase() === normalizedMutationID;
+    const wins = opportunity.dispositionMutationID === null
+      || isSameMutation
+      || incomingTime > currentTime
+      || (incomingTime === currentTime && (opportunity.dispositionMutationID ?? "") < normalizedMutationID);
+    if (wins && !isSameMutation) {
+      opportunity.disposition = mutation.disposition;
+      opportunity.dispositionUpdatedAt = mutation.changedAt;
+      opportunity.dispositionMutationID = normalizedMutationID;
+    }
+    return {
+      opportunityID: id,
+      disposition: opportunity.disposition,
+      changedAt: opportunity.dispositionUpdatedAt,
+      mutationID: opportunity.dispositionMutationID ?? normalizedMutationID,
+      outcome: isSameMutation ? "idempotent" : wins ? "applied" : "superseded",
+    };
   }
 
   async listWatchlist(): Promise<WatchlistEntry[]> {

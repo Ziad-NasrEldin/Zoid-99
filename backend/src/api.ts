@@ -1,10 +1,15 @@
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import { z } from "zod";
-import type { IngestionPayload, OpportunityDisposition, WatchlistEntry } from "./domain.js";
+import type { IngestionPayload, OpportunityDispositionMutation, WatchlistEntry } from "./domain.js";
 import type { ResearchRepository } from "./repository.js";
 import { isAuthorized } from "./security.js";
 
 const dispositionSchema = z.enum(["active", "saved", "watched", "dismissed", "muted"]);
+const dispositionMutationSchema = z.object({
+  disposition: dispositionSchema,
+  changedAt: z.iso.datetime({ offset: true }),
+  mutationID: z.string().uuid(),
+}).strict();
 const watchlistSchema = z.object({
   kind: z.enum(["Creator", "Official source", "Keyword", "Topic", "Country", "Language"]),
   value: z.string().trim().min(1).max(500),
@@ -75,12 +80,12 @@ export function buildApi(options: {
   });
   app.patch("/v1/opportunities/:id/disposition", async (request, reply) => {
     const params = uuidParams(request.params);
-    const body = z.object({ disposition: dispositionSchema }).strict().safeParse(request.body);
+    const body = dispositionMutationSchema.safeParse(request.body);
     if (!params.success) return invalidRequest(reply, params.error.issues);
     if (!body.success) return invalidRequest(reply, body.error.issues);
     const opportunity = await options.repository.updateOpportunityDisposition(
       params.data.id,
-      body.data.disposition as OpportunityDisposition,
+      body.data as OpportunityDispositionMutation,
     );
     return opportunity ?? reply.code(404).send({ error: "not_found", message: "Opportunity not found" });
   });

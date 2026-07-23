@@ -3,6 +3,56 @@ import XCTest
 @testable import Zoid99
 
 final class SourceConnectorContractTests: XCTestCase {
+    func testBackendDispositionSyncUsesAuthenticatedPatchAndPullsCanonicalState() async throws {
+        let opportunityID = UUID(uuidString: "20000000-0000-4000-8000-000000000001")!
+        let mutationID = UUID(uuidString: "50000000-0000-4000-8000-000000000001")!
+        let changedAt = Date(timeIntervalSince1970: 1_785_000_000)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let applied = OpportunityDispositionState(
+            opportunityID: opportunityID,
+            disposition: .dismissed,
+            changedAt: changedAt,
+            mutationID: mutationID,
+            outcome: .applied
+        )
+        let canonical = """
+        [{
+          "id":"\(opportunityID.uuidString)",
+          "disposition":"dismissed",
+          "dispositionUpdatedAt":"\(ISO8601DateFormatter().string(from: changedAt))",
+          "dispositionMutationID":"\(mutationID.uuidString)"
+        }]
+        """.data(using: .utf8)!
+        let transport = StubHTTPTransport(responses: [
+            .response(status: 200, headers: [:], body: try encoder.encode(applied)),
+            .response(status: 200, headers: [:], body: canonical),
+        ])
+        let sync = BackendOpportunityDispositionSync(
+            baseURL: URL(string: "https://zoid99.example")!,
+            apiToken: String(repeating: "a", count: 32),
+            transport: transport
+        )
+
+        let result = await sync.reconcile([
+            OpportunityDispositionMutation(
+                id: mutationID,
+                opportunityID: opportunityID,
+                disposition: .dismissed,
+                changedAt: changedAt
+            )
+        ])
+
+        XCTAssertNil(result.errorMessage)
+        XCTAssertEqual(result.acknowledgedMutationIDs, [mutationID])
+        XCTAssertEqual(result.states.last?.disposition, .dismissed)
+        let requests = await transport.recordedRequests()
+        XCTAssertEqual(requests.map(\.method), ["PATCH", "GET"])
+        XCTAssertEqual(requests[0].headers["Authorization"], "Bearer \(String(repeating: "a", count: 32))")
+        XCTAssertTrue(try XCTUnwrap(String(data: XCTUnwrap(requests[0].body), encoding: .utf8))
+            .contains("\"mutationID\":\"\(mutationID.uuidString)\""))
+    }
+
     func testRSS20MapsIntoNormalizedSourceItems() async throws {
         let transport = StubHTTPTransport(
             responses: [.response(status: 200, headers: [

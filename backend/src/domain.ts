@@ -16,6 +16,16 @@ export type ConnectionState =
   | "Rate limited"
   | "Delayed";
 export type OpportunityDisposition = "active" | "saved" | "watched" | "dismissed" | "muted";
+export interface OpportunityDispositionMutation {
+  disposition: OpportunityDisposition;
+  changedAt: string;
+  mutationID: string;
+}
+
+export interface OpportunityDispositionState extends OpportunityDispositionMutation {
+  opportunityID: string;
+  outcome: "applied" | "idempotent" | "superseded";
+}
 export type NotificationDelivery = "Immediate" | "Digest";
 
 export interface SourceHealth {
@@ -68,6 +78,8 @@ export interface Opportunity {
   regionalExplanation: string;
   coverageExplanation: string;
   disposition: OpportunityDisposition;
+  dispositionUpdatedAt: string;
+  dispositionMutationID: string | null;
   isHighPriority: boolean;
 }
 
@@ -101,7 +113,11 @@ export interface ResearchBatch {
   originState: "Identified" | "Unknown";
   originalSource: Pick<SourceItem, "group" | "externalID"> | null;
   sourceItems: Array<Omit<SourceItem, "id">>;
-  opportunity: Omit<Opportunity, "id" | "topicKey" | "verification" | "earliestPublishedAt" | "originalSource" | "items" | "isHighPriority">;
+  opportunity: Omit<
+    Opportunity,
+    "id" | "topicKey" | "verification" | "earliestPublishedAt" | "originalSource" | "items"
+      | "dispositionUpdatedAt" | "dispositionMutationID" | "isHighPriority"
+  >;
   notification: Omit<NotificationRecord, "id" | "opportunityID"> | null;
 }
 
