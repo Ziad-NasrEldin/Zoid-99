@@ -96,3 +96,8 @@ Connector-specific live checks remain explicit opt-in tests and are never part o
 - Confirm Arabic comment rows read right-to-left while controls remain left-to-right.
 - Grant notification permission and send the deterministic high-priority test alert.
 - Configure each real connector only with official credentials and verify its health evidence.
+
+Notification permission and native delivery are never exercised by the automated suite.
+To launch a disposable, deterministic notification proof state from a packaged `.app`, set `ZOID99_MANUAL_NOTIFICATION_PROOF=1` for that launch.
+The proof mode writes only to the temporary directory and does not use the normal Zoid 99 research cache.
+Permission must still be granted manually from the in-app button.

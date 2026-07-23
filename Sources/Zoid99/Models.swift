@@ -237,10 +237,26 @@ struct WatchlistEntry: Identifiable, Codable, Hashable, Sendable {
     var highPriority: Bool
 }
 
+enum NotificationPermissionState: String, Codable, Sendable {
+    case notDetermined = "Not requested"
+    case denied = "Denied"
+    case authorized = "Allowed"
+    case provisional = "Provisional"
+    case unavailable = "Unavailable"
+}
+
 struct NotificationRecord: Identifiable, Codable, Hashable, Sendable {
     enum Delivery: String, Codable, Sendable {
         case immediate = "Immediate"
         case digest = "Digest"
+    }
+
+    enum DeliveryState: String, Codable, Sendable {
+        case awaitingPermission = "Awaiting permission"
+        case scheduled = "Scheduled"
+        case delivered = "Delivered"
+        case suppressed = "Suppressed"
+        case failed = "Failed"
     }
 
     let id: UUID
@@ -249,18 +265,122 @@ struct NotificationRecord: Identifiable, Codable, Hashable, Sendable {
     let delivery: Delivery
     let createdAt: Date
     var isRead: Bool
+    var deliveryState: DeliveryState
+    var scheduledAt: Date?
+    var deliveredAt: Date?
+    var statusDetail: String
+
+    init(
+        id: UUID,
+        opportunityID: UUID,
+        title: String,
+        delivery: Delivery,
+        createdAt: Date,
+        isRead: Bool,
+        deliveryState: DeliveryState = .awaitingPermission,
+        scheduledAt: Date? = nil,
+        deliveredAt: Date? = nil,
+        statusDetail: String = "Waiting for notification processing."
+    ) {
+        self.id = id
+        self.opportunityID = opportunityID
+        self.title = title
+        self.delivery = delivery
+        self.createdAt = createdAt
+        self.isRead = isRead
+        self.deliveryState = deliveryState
+        self.scheduledAt = scheduledAt
+        self.deliveredAt = deliveredAt
+        self.statusDetail = statusDetail
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, opportunityID, title, delivery, createdAt, isRead
+        case deliveryState, scheduledAt, deliveredAt, statusDetail
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(UUID.self, forKey: .id)
+        opportunityID = try values.decode(UUID.self, forKey: .opportunityID)
+        title = try values.decode(String.self, forKey: .title)
+        delivery = try values.decode(Delivery.self, forKey: .delivery)
+        createdAt = try values.decode(Date.self, forKey: .createdAt)
+        isRead = try values.decode(Bool.self, forKey: .isRead)
+        deliveryState = try values.decodeIfPresent(DeliveryState.self, forKey: .deliveryState) ?? .awaitingPermission
+        scheduledAt = try values.decodeIfPresent(Date.self, forKey: .scheduledAt)
+        deliveredAt = try values.decodeIfPresent(Date.self, forKey: .deliveredAt)
+        statusDetail = try values.decodeIfPresent(String.self, forKey: .statusDetail)
+            ?? "Restored from notification history."
+    }
 }
 
 struct AppSettings: Codable, Hashable, Sendable {
     var setupComplete: Bool
     var refreshMinutes: Int
     var notificationPermissionRequested: Bool
+    var notificationsEnabled: Bool
+    var notificationPermission: NotificationPermissionState
+    var quietHoursEnabled: Bool
+    var quietStartHour: Int
+    var quietEndHour: Int
+    var digestHour: Int
 
     static let defaults = AppSettings(
         setupComplete: false,
         refreshMinutes: 15,
-        notificationPermissionRequested: false
+        notificationPermissionRequested: false,
+        notificationsEnabled: false,
+        notificationPermission: .notDetermined,
+        quietHoursEnabled: true,
+        quietStartHour: 22,
+        quietEndHour: 8,
+        digestHour: 18
     )
+
+    init(
+        setupComplete: Bool,
+        refreshMinutes: Int,
+        notificationPermissionRequested: Bool,
+        notificationsEnabled: Bool = false,
+        notificationPermission: NotificationPermissionState = .notDetermined,
+        quietHoursEnabled: Bool = true,
+        quietStartHour: Int = 22,
+        quietEndHour: Int = 8,
+        digestHour: Int = 18
+    ) {
+        self.setupComplete = setupComplete
+        self.refreshMinutes = refreshMinutes
+        self.notificationPermissionRequested = notificationPermissionRequested
+        self.notificationsEnabled = notificationsEnabled
+        self.notificationPermission = notificationPermission
+        self.quietHoursEnabled = quietHoursEnabled
+        self.quietStartHour = quietStartHour
+        self.quietEndHour = quietEndHour
+        self.digestHour = digestHour
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case setupComplete, refreshMinutes, notificationPermissionRequested
+        case notificationsEnabled, notificationPermission, quietHoursEnabled
+        case quietStartHour, quietEndHour, digestHour
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        setupComplete = try values.decode(Bool.self, forKey: .setupComplete)
+        refreshMinutes = try values.decode(Int.self, forKey: .refreshMinutes)
+        notificationPermissionRequested =
+            try values.decodeIfPresent(Bool.self, forKey: .notificationPermissionRequested) ?? false
+        notificationsEnabled = try values.decodeIfPresent(Bool.self, forKey: .notificationsEnabled) ?? false
+        notificationPermission =
+            try values.decodeIfPresent(NotificationPermissionState.self, forKey: .notificationPermission)
+            ?? .notDetermined
+        quietHoursEnabled = try values.decodeIfPresent(Bool.self, forKey: .quietHoursEnabled) ?? true
+        quietStartHour = try values.decodeIfPresent(Int.self, forKey: .quietStartHour) ?? 22
+        quietEndHour = try values.decodeIfPresent(Int.self, forKey: .quietEndHour) ?? 8
+        digestHour = try values.decodeIfPresent(Int.self, forKey: .digestHour) ?? 18
+    }
 }
 
 struct SourceHealthRecord: Identifiable, Codable, Hashable, Sendable {
