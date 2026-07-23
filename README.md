@@ -17,6 +17,13 @@ Complete setup to enter the main research ledger.
 swift test
 ```
 
+## Always-on backend
+
+The production data and API foundation lives in `backend/`.
+It provides PostgreSQL migrations, authenticated macOS-facing API contracts, encrypted connector configuration storage, and deterministic local setup.
+It does not include source connectors.
+See `backend/README.md` for environment variables and startup instructions.
+
 ## Live integration status
 
 Live YouTube, Google Trends, Instagram, comments, official feeds, and X credentials are not bundled.
