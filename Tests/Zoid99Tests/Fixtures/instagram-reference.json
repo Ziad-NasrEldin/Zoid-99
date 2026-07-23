@@ -1,0 +1,21 @@
+{
+  "business_discovery": {
+    "id": "ig-reference-300",
+    "username": "reference_creator",
+    "media": {
+      "data": [
+        {
+          "id": "reference-reel-1",
+          "caption": "Reference topic",
+          "media_type": "VIDEO",
+          "media_product_type": "REELS",
+          "permalink": "https://www.instagram.com/reel/reference/",
+          "timestamp": "2026-07-23T10:00:00+0000",
+          "username": "reference_creator",
+          "like_count": 100,
+          "comments_count": 10
+        }
+      ]
+    }
+  }
+}

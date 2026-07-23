@@ -1,0 +1,14 @@
+{
+  "data": [
+    {
+      "id": "comment-1",
+      "text": "هل يمكن شرح الخطوات؟",
+      "timestamp": "2026-07-23T13:00:00+0000",
+      "username": "arabic_viewer",
+      "from": {
+        "username": "arabic_viewer"
+      },
+      "like_count": 4
+    }
+  ]
+}
