@@ -113,7 +113,7 @@ for variant in variants {
         .paragraphStyle: paragraph,
     ]
     ("99" as NSString).draw(
-        in: NSRect(x: 0, y: scaled(358, for: size), width: size, height: scaled(440, for: size)),
+        in: NSRect(x: 0, y: scaled(286, for: size), width: size, height: scaled(440, for: size)),
         withAttributes: attributes
     )
 
