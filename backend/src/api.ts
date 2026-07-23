@@ -1,6 +1,6 @@
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import { z } from "zod";
-import type { OpportunityDisposition, WatchlistEntry } from "./domain.js";
+import type { IngestionPayload, OpportunityDisposition, WatchlistEntry } from "./domain.js";
 import type { ResearchRepository } from "./repository.js";
 import { isAuthorized } from "./security.js";
 
@@ -39,7 +39,28 @@ export function buildApi(options: {
     }
   });
 
-  app.get("/v1/bootstrap", async () => options.repository.bootstrap());
+  app.get("/v1/bootstrap", async (request, reply) => {
+    const cursor = await options.repository.syncCursor();
+    const etag = `"${cursor}"`;
+    reply.header("ETag", etag);
+    if (request.headers["if-none-match"] === etag) return reply.code(304).send();
+    return options.repository.bootstrap();
+  });
+  app.post("/v1/ingestion", async (request, reply) => {
+    const payload = ingestionSchema.safeParse(request.body);
+    if (!payload.success) return invalidRequest(reply, payload.error.issues);
+    for (const health of payload.data.sourceHealth) {
+      await options.repository.upsertSourceHealth(health);
+    }
+    const opportunities = [];
+    for (const batch of payload.data.batches) {
+      opportunities.push(await options.repository.persistResearchBatch(batch));
+    }
+    return reply.code(202).send({
+      acceptedBatches: opportunities.length,
+      opportunityIDs: opportunities.map((opportunity) => opportunity.id),
+    });
+  });
   app.get("/v1/sources/health", async () => options.repository.listSourceHealth());
   app.get("/v1/opportunities", async (request, reply) => {
     const query = z.object({ disposition: dispositionSchema.optional() }).safeParse(request.query);
@@ -90,6 +111,9 @@ export function buildApi(options: {
   });
 
   app.setErrorHandler((error, _request, reply) => {
+    if (typeof error === "object" && error !== null && "statusCode" in error && error.statusCode === 413) {
+      return reply.code(413).send({ error: "payload_too_large", message: "The ingestion batch exceeds the size limit" });
+    }
     if (typeof error === "object" && error !== null && "code" in error && error.code === "23505") {
       return reply.code(409).send({ error: "conflict", message: "The record already exists" });
     }
@@ -98,6 +122,28 @@ export function buildApi(options: {
   });
   return app;
 }
+
+const sourceHealthSchema = z.object({
+  group: z.enum(["YouTube", "Google Trends", "Instagram", "Comments", "US & Official", "X"]),
+  state: z.enum(["Connected", "Setup required", "Unavailable", "Rate limited", "Delayed"]),
+  lastActivity: z.string().datetime().nullable().optional().transform((value) => value ?? null),
+  evidence: z.string().min(1),
+  repairAction: z.string().min(1),
+  dataTruth: z.enum(["Live", "Cached", "Missing", "Delayed", "Unavailable", "Rate limited"]),
+}).strict();
+
+const ingestionSchema: z.ZodType<IngestionPayload> = z.object({
+  sourceHealth: z.array(sourceHealthSchema).min(1),
+  batches: z.array(z.custom<IngestionPayload["batches"][number]>((value) => {
+    if (typeof value !== "object" || value === null) return false;
+    const batch = value as Record<string, unknown>;
+    return typeof batch.clusterKey === "string"
+      && typeof batch.topicKey === "string"
+      && Array.isArray(batch.sourceItems)
+      && batch.sourceItems.length > 0
+      && typeof batch.opportunity === "object";
+  })),
+}).strict();
 
 function uuidParams(input: unknown) {
   return z.object({ id: z.string().uuid() }).safeParse(input);

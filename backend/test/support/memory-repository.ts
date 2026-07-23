@@ -59,6 +59,7 @@ export class MemoryRepository implements ResearchRepository {
     lastActivity: null,
     evidence: "No account or API credential has been connected.",
     repairAction: "Configure",
+    dataTruth: "Missing",
   }];
   opportunities: Opportunity[] = [structuredClone(fixtureOpportunity)];
   watchlist: WatchlistEntry[] = [];
@@ -75,6 +76,10 @@ export class MemoryRepository implements ResearchRepository {
     if (!this.available) throw new Error("offline");
   }
 
+  async syncCursor(): Promise<string> {
+    return `${this.opportunities.length}:${this.notifications.length}:${this.sourceHealth.map((item) => item.evidence).join("|")}`;
+  }
+
   async upsertSourceHealth(health: SourceHealth): Promise<SourceHealth> {
     const index = this.sourceHealth.findIndex((candidate) => candidate.group === health.group);
     if (index === -1) this.sourceHealth.push(health);
@@ -82,8 +87,37 @@ export class MemoryRepository implements ResearchRepository {
     return structuredClone(health);
   }
 
-  async persistResearchBatch(_batch: ResearchBatch): Promise<Opportunity> {
-    throw new Error("Not implemented by this API test repository");
+  async persistResearchBatch(batch: ResearchBatch): Promise<Opportunity> {
+    const existing = this.opportunities.find((item) => item.topicKey === batch.topicKey);
+    const items = batch.sourceItems.map((item, index) => ({
+      id: `10000000-0000-4000-8000-${String(index + 2).padStart(12, "0")}`,
+      ...item,
+    }));
+    const originalSource = batch.originalSource
+      ? items.find((item) =>
+        item.group === batch.originalSource?.group && item.externalID === batch.originalSource.externalID) ?? null
+      : null;
+    const opportunity: Opportunity = {
+      id: existing?.id ?? `20000000-0000-4000-8000-${String(this.opportunities.length + 2).padStart(12, "0")}`,
+      topicKey: batch.topicKey,
+      verification: batch.verification,
+      earliestPublishedAt: items.map((item) => item.publishedAt).sort()[0]!,
+      originalSource,
+      items,
+      ...batch.opportunity,
+      isHighPriority: Object.values(batch.opportunity.score).reduce((sum, value) => sum + value, 0) >= 75
+        && batch.verification === "Confirmed",
+    };
+    if (existing) this.opportunities[this.opportunities.indexOf(existing)] = opportunity;
+    else this.opportunities.push(opportunity);
+    if (batch.notification) {
+      this.notifications.push({
+        id: `30000000-0000-4000-8000-${String(this.notifications.length + 2).padStart(12, "0")}`,
+        opportunityID: opportunity.id,
+        ...batch.notification,
+      });
+    }
+    return structuredClone(opportunity);
   }
 
   async bootstrap(): Promise<BootstrapPayload> {

@@ -69,6 +69,18 @@ export class PostgreSqlRepository implements ResearchRepository, EncryptedConfig
     await this.database.query("SELECT 1");
   }
 
+  async syncCursor(): Promise<string> {
+    const result = await this.database.query<{ cursor: Date }>(`
+      SELECT GREATEST(
+        COALESCE((SELECT max(updated_at) FROM source_health), to_timestamp(0)),
+        COALESCE((SELECT max(updated_at) FROM opportunities), to_timestamp(0)),
+        COALESCE((SELECT max(updated_at) FROM watchlist_entries), to_timestamp(0)),
+        COALESCE((SELECT max(updated_at) FROM notifications), to_timestamp(0))
+      ) AS cursor
+    `);
+    return result.rows[0]!.cursor.toISOString();
+  }
+
   async upsertSourceHealth(health: SourceHealth): Promise<SourceHealth> {
     const result = await this.database.query<{
       source_group: SourceHealth["group"];
@@ -76,21 +88,23 @@ export class PostgreSqlRepository implements ResearchRepository, EncryptedConfig
       last_activity_at: Date | null;
       evidence: string;
       repair_action: string;
+      data_truth: SourceHealth["dataTruth"];
     }>(`
       INSERT INTO source_health (
-        source_group, sort_order, connection_state, last_activity_at, evidence, repair_action
+        source_group, sort_order, connection_state, last_activity_at, evidence, repair_action, data_truth
       ) VALUES (
         $1, (SELECT sort_order FROM source_health WHERE source_group = $1),
-        $2, $3, $4, $5
+        $2, $3, $4, $5, $6
       )
       ON CONFLICT (source_group) DO UPDATE SET
         connection_state = EXCLUDED.connection_state,
         last_activity_at = EXCLUDED.last_activity_at,
         evidence = EXCLUDED.evidence,
         repair_action = EXCLUDED.repair_action,
+        data_truth = EXCLUDED.data_truth,
         updated_at = now()
-      RETURNING source_group, connection_state, last_activity_at, evidence, repair_action
-    `, [health.group, health.state, health.lastActivity, health.evidence, health.repairAction]);
+      RETURNING source_group, connection_state, last_activity_at, evidence, repair_action, data_truth
+    `, [health.group, health.state, health.lastActivity, health.evidence, health.repairAction, health.dataTruth]);
     const row = result.rows[0]!;
     return {
       group: row.source_group,
@@ -98,6 +112,7 @@ export class PostgreSqlRepository implements ResearchRepository, EncryptedConfig
       lastActivity: row.last_activity_at?.toISOString() ?? null,
       evidence: row.evidence,
       repairAction: row.repair_action,
+      dataTruth: row.data_truth,
     };
   }
 
@@ -250,8 +265,9 @@ export class PostgreSqlRepository implements ResearchRepository, EncryptedConfig
       last_activity_at: Date | null;
       evidence: string;
       repair_action: string;
+      data_truth: SourceHealth["dataTruth"];
     }>(`
-      SELECT source_group, connection_state, last_activity_at, evidence, repair_action
+      SELECT source_group, connection_state, last_activity_at, evidence, repair_action, data_truth
       FROM source_health
       ORDER BY sort_order
     `);
@@ -261,6 +277,7 @@ export class PostgreSqlRepository implements ResearchRepository, EncryptedConfig
       lastActivity: row.last_activity_at?.toISOString() ?? null,
       evidence: row.evidence,
       repairAction: row.repair_action,
+      dataTruth: row.data_truth,
     }));
   }
 
@@ -276,7 +293,7 @@ export class PostgreSqlRepository implements ResearchRepository, EncryptedConfig
       ORDER BY (
         o.freshness_score + o.credibility_score + o.momentum_score +
         o.creator_activity_score + o.arabic_coverage_gap_score + o.regional_relevance_score
-      ) DESC, sc.earliest_published_at DESC
+      ) DESC, sc.earliest_published_at DESC, sc.cluster_key
     `, values);
     return this.hydrateOpportunities(result.rows);
   }
@@ -360,7 +377,7 @@ export class PostgreSqlRepository implements ResearchRepository, EncryptedConfig
       created_at: Date;
       is_read: boolean;
     }>(`
-      UPDATE notifications SET is_read = $2
+      UPDATE notifications SET is_read = $2, updated_at = now()
       WHERE id = $1
       RETURNING id, opportunity_id, title, delivery, created_at, is_read
     `, [id, isRead]);

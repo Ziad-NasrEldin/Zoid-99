@@ -21,13 +21,15 @@ swift test
 
 The production data and API foundation lives in `backend/`.
 It provides PostgreSQL migrations, authenticated macOS-facing API contracts, encrypted connector configuration storage, and deterministic local setup.
-It does not include source connectors.
+The macOS ingestion worker joins the credential-free official-feed connectors to this backend.
+It authenticates ingestion and bootstrap requests, persists normalized evidence and opportunities, and uses conditional refreshes when backend state has not changed.
 See `backend/README.md` for environment variables and startup instructions.
 
 ## Live integration status
 
 Credential-free RSS 2.0, Atom, and GitHub Releases connectors are available for the verified official starter catalog.
-The current app screen still uses deterministic fixtures and never presents fixture evidence as live.
+Without backend environment variables, the app uses deterministic fixtures and never presents fixture evidence as live.
+Set `ZOID99_API_BASE_URL` and a matching `ZOID99_API_TOKEN` to enable scheduled official-feed collection and authenticated synchronization.
 Live YouTube, Google Trends, Instagram, comments, and X credentials are not bundled.
 Native notification permission is requested only through the explicit setup or settings action.
 Always-on monitoring while the Mac sleeps requires a separately deployed monitoring service.
@@ -36,6 +38,15 @@ Run the opt-in public-feed validation with:
 
 ```sh
 ZOID99_RUN_LIVE_FEEDS=1 swift test --filter LivePublicFeedTests
+
+Run the opt-in full-spine smoke test against a migrated backend with:
+
+```sh
+ZOID99_RUN_LIVE_SPINE=1 \
+ZOID99_API_BASE_URL=http://127.0.0.1:3000 \
+ZOID99_API_TOKEN=replace-with-the-configured-token \
+swift test --filter LivePublicFeedTests/testRealOfficialFeedReachesBackendAndMacOSBootstrap
+```
 ```
 
 The normal test suite never requires network access.
