@@ -17,6 +17,17 @@ Complete setup to enter the main research ledger.
 swift test
 ```
 
+## macOS release build
+
+Build and verify a credential-free unsigned application bundle with:
+
+```sh
+./scripts/build-release.sh
+./scripts/verify-release.sh ".build/release-artifacts/Zoid 99.app"
+```
+
+Signing, hardened runtime, notarization, and update-delivery instructions are in [docs/RELEASING.md](docs/RELEASING.md).
+
 ## Always-on backend
 
 The production data and API foundation lives in `backend/`.
