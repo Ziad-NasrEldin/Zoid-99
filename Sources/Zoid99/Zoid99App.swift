@@ -15,6 +15,10 @@ struct Zoid99App: App {
             }
             .environmentObject(store)
             .frame(minWidth: 980, minHeight: 680)
+            .task {
+                guard store.setupComplete else { return }
+                store.startScheduledRefresh()
+            }
         }
         .windowStyle(.titleBar)
         .commands {

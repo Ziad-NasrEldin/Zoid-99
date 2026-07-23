@@ -2,7 +2,7 @@
 
 This service is the always-on data and API foundation for the single-user macOS application.
 It stores normalized research records, source health, opportunities, watchlists, notifications, and encrypted connector configuration.
-It intentionally does not collect from external sources.
+The macOS ingestion worker collects credential-free official feeds on the configured refresh schedule and submits normalized research batches here.
 
 ## Requirements
 
@@ -39,6 +39,7 @@ The first version has one user and no public registration or session endpoint.
 ## macOS API contract
 
 - `GET /v1/bootstrap`
+- `POST /v1/ingestion`
 - `GET /v1/sources/health`
 - `GET /v1/opportunities`
 - `GET /v1/opportunities/:id`
@@ -50,6 +51,7 @@ The first version has one user and no public registration or session endpoint.
 - `PATCH /v1/notifications/:id`
 
 Response fields and written enum values match the existing Swift models.
+Bootstrap responses include an `ETag`; the macOS client sends `If-None-Match` so unchanged state returns `304 Not Modified`.
 Database-only fields and encrypted values are never returned.
 
 ## Production notes

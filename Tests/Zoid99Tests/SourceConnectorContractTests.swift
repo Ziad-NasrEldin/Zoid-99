@@ -190,6 +190,22 @@ final class SourceConnectorContractTests: XCTestCase {
         XCTAssertEqual(result.state, .unavailable(statusCode: nil))
     }
 
+    func testOfficialFeedCollectionIsBoundedToThirtyNewestItems() async {
+        let records = (1...35).map { index in
+            """
+            <item><guid>\(index)</guid><title>Release \(index)</title>
+            <link>https://example.com/releases/\(index)</link>
+            <pubDate>Thu, \(String(format: "%02d", min(index, 28))) Jul 2026 08:00:00 GMT</pubDate></item>
+            """
+        }.joined()
+        let xml = Data("<rss><channel>\(records)</channel></rss>".utf8)
+
+        let result = await connector(kind: .rss, body: xml).collect()
+
+        XCTAssertEqual(result.items.count, 30)
+        XCTAssertTrue(result.items.allSatisfy { !["1", "2", "3", "4", "5"].contains($0.externalID) })
+    }
+
     private func fixture(_ name: String) throws -> Data {
         let url = Bundle.module.url(forResource: name, withExtension: nil)
         return try Data(contentsOf: XCTUnwrap(url))

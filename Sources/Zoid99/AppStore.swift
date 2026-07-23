@@ -27,10 +27,11 @@ final class AppStore: ObservableObject {
     private let pipeline = ResearchPipeline()
     private let persistence: any ResearchPersistence
     private let sync: any ResearchSyncing
+    private var scheduledRefreshTask: Task<Void, Never>?
 
     init(
         persistence: any ResearchPersistence = JSONResearchPersistence.production(),
-        sync: any ResearchSyncing = NoopResearchSync(),
+        sync: any ResearchSyncing = ProductionResearchSync(),
         loadDemoDataWhenEmpty: Bool = true
     ) {
         self.persistence = persistence
@@ -54,6 +55,20 @@ final class AppStore: ObservableObject {
         } catch {
             applyStoredState(.empty)
             statusMessage = "Local data unavailable"
+        }
+    }
+
+    func startScheduledRefresh() {
+        guard scheduledRefreshTask == nil else { return }
+        scheduledRefreshTask = Task { [weak self] in
+            guard let self else { return }
+            await self.refresh()
+            while !Task.isCancelled {
+                let interval = UInt64(self.refreshMinutes) * 60
+                try? await Task.sleep(for: .seconds(interval))
+                guard !Task.isCancelled else { return }
+                await self.refresh()
+            }
         }
     }
 
@@ -154,6 +169,7 @@ final class AppStore: ObservableObject {
         settings.setupComplete = true
         statusMessage = "Setup complete"
         persistReportingFailure()
+        startScheduledRefresh()
     }
 
     func requestNotifications() async {

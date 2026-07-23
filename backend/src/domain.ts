@@ -24,6 +24,7 @@ export interface SourceHealth {
   lastActivity: string | null;
   evidence: string;
   repairAction: string;
+  dataTruth: "Live" | "Cached" | "Missing" | "Delayed" | "Unavailable" | "Rate limited";
 }
 
 export interface SourceItem {
@@ -102,4 +103,9 @@ export interface ResearchBatch {
   sourceItems: Array<Omit<SourceItem, "id">>;
   opportunity: Omit<Opportunity, "id" | "topicKey" | "verification" | "earliestPublishedAt" | "originalSource" | "items" | "isHighPriority">;
   notification: Omit<NotificationRecord, "id" | "opportunityID"> | null;
+}
+
+export interface IngestionPayload {
+  sourceHealth: SourceHealth[];
+  batches: ResearchBatch[];
 }

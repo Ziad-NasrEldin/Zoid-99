@@ -10,6 +10,7 @@ import type {
 
 export interface ResearchRepository {
   ping(): Promise<void>;
+  syncCursor(): Promise<string>;
   upsertSourceHealth(health: SourceHealth): Promise<SourceHealth>;
   persistResearchBatch(batch: ResearchBatch): Promise<Opportunity>;
   bootstrap(): Promise<BootstrapPayload>;

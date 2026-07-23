@@ -255,6 +255,8 @@ struct PublicFeedConnector: ProductionSourceConnector {
             let items = records.compactMap { record in
                 SourceItemMapper.map(record, source: source, collectedAt: collectedAt)
             }
+            .sorted { $0.publishedAt > $1.publishedAt }
+            .prefix(30)
             guard !items.isEmpty else {
                 return failure(
                     .unavailable(statusCode: nil),
@@ -266,7 +268,7 @@ struct PublicFeedConnector: ProductionSourceConnector {
                 collectedAt.timeIntervalSince($0.publishedAt) > delayedAfter
             } ? .delayed : state
             return ConnectorCollection(
-                items: items,
+                items: Array(items),
                 state: resolvedState,
                 validators: validators,
                 collectedAt: collectedAt,
@@ -331,14 +333,14 @@ private enum SourceItemMapper {
         }
         let title = record.title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty else { return nil }
-        let externalID = record.externalID.isEmpty ? url.absoluteString : record.externalID
+        let externalID = String((record.externalID.isEmpty ? url.absoluteString : record.externalID).prefix(2_000))
         return SourceItem(
             id: StableSourceID.make(sourceID: source.id, externalID: externalID),
             group: .official,
             externalID: externalID,
-            title: title,
-            summary: PlainText.fromHTML(record.summary),
-            author: record.author.nonEmpty ?? source.name,
+            title: String(title.prefix(1_000)),
+            summary: String(PlainText.fromHTML(record.summary).prefix(8_000)),
+            author: String((record.author.nonEmpty ?? source.name).prefix(500)),
             url: url,
             publishedAt: record.publishedAt,
             collectedAt: collectedAt,

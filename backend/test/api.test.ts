@@ -51,6 +51,91 @@ test("bootstrap preserves the existing macOS model contract", async (context) =>
   assert.equal("encryptedValue" in body, false);
 });
 
+test("authenticated ingestion persists one official-feed opportunity and supports conditional refresh", async (context) => {
+  const repository = new MemoryRepository();
+  repository.opportunities = [];
+  repository.notifications = [];
+  const app = buildApi({ repository, apiToken });
+  context.after(() => app.close());
+
+  const sourceItem = {
+    group: "US & Official",
+    externalID: "official-feed-entry-1",
+    title: "Official feed release",
+    summary: "Published by the official source.",
+    author: "Official source",
+    url: "https://example.com/official-release",
+    publishedAt: "2026-07-24T08:00:00.000Z",
+    collectedAt: "2026-07-24T08:05:00.000Z",
+    language: "en",
+    country: "US",
+    topicKey: "official-feed-entry-1",
+    isOriginalSource: true,
+    credibility: 1,
+    engagement: 0,
+    verification: "Confirmed",
+  };
+  const ingestion = await app.inject({
+    method: "POST",
+    url: "/v1/ingestion",
+    headers: authorization,
+    payload: {
+      sourceHealth: [{
+        group: "US & Official",
+        state: "Connected",
+        lastActivity: sourceItem.collectedAt,
+        evidence: "1 live official-feed item accepted.",
+        repairAction: "Review",
+        dataTruth: "Live",
+      }],
+      batches: [{
+        clusterKey: sourceItem.topicKey,
+        topicKey: sourceItem.topicKey,
+        verification: "Confirmed",
+        originState: "Identified",
+        originalSource: { group: sourceItem.group, externalID: sourceItem.externalID },
+        sourceItems: [sourceItem],
+        opportunity: {
+          title: sourceItem.title,
+          brief: sourceItem.summary,
+          score: {
+            freshness: 20, credibility: 20, momentum: 4,
+            creatorActivity: 0, arabicCoverageGap: 15, regionalRelevance: 7,
+          },
+          regionalExplanation: "Regional demand evidence is not yet available.",
+          coverageExplanation: "No Arabic-language coverage appears in the evidence.",
+          disposition: "active",
+        },
+        notification: {
+          title: sourceItem.title,
+          delivery: "Digest",
+          createdAt: sourceItem.collectedAt,
+          isRead: false,
+        },
+      }],
+    },
+  });
+  assert.equal(ingestion.statusCode, 202);
+  assert.equal(ingestion.json().acceptedBatches, 1);
+
+  const bootstrap = await app.inject({ method: "GET", url: "/v1/bootstrap", headers: authorization });
+  assert.equal(bootstrap.statusCode, 200);
+  assert.equal(bootstrap.json().opportunities[0].items[0].url, sourceItem.url);
+  assert.equal(
+    bootstrap.json().sourceHealth.find((health: { group: string }) => health.group === "US & Official").dataTruth,
+    "Live",
+  );
+  assert.equal(bootstrap.json().notifications[0].delivery, "Digest");
+
+  const unchanged = await app.inject({
+    method: "GET",
+    url: "/v1/bootstrap",
+    headers: { ...authorization, "if-none-match": bootstrap.headers.etag! },
+  });
+  assert.equal(unchanged.statusCode, 304);
+  assert.equal(unchanged.body, "");
+});
+
 test("a disposition update is persisted through the authenticated public API", async (context) => {
   const repository = new MemoryRepository();
   const app = buildApi({ repository, apiToken });

@@ -24,4 +24,27 @@ final class LivePublicFeedTests: XCTestCase {
             )
         }
     }
+
+    func testRealOfficialFeedReachesBackendAndMacOSBootstrap() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["ZOID99_RUN_LIVE_SPINE"] == "1" else {
+            throw XCTSkip("Set ZOID99_RUN_LIVE_SPINE=1 with ZOID99_API_BASE_URL and ZOID99_API_TOKEN.")
+        }
+        let baseURL = try XCTUnwrap(environment["ZOID99_API_BASE_URL"].flatMap(URL.init(string:)))
+        let token = try XCTUnwrap(environment["ZOID99_API_TOKEN"])
+        let sync = BackendResearchSync(baseURL: baseURL, token: token)
+
+        let results = await sync.synchronize()
+
+        let official = try XCTUnwrap(results.first { $0.group == .official })
+        XCTAssertEqual(official.state, .connected, official.evidence)
+        XCTAssertEqual(official.dataTruth, .live, official.evidence)
+        let firstItem = try XCTUnwrap(official.items.first, official.evidence)
+        XCTAssertTrue(official.items.allSatisfy { $0.url.scheme == "https" && $0.isOriginalSource })
+        print(
+            "LIVE_SPINE_PROOF endpoint=\(baseURL.absoluteString) "
+                + "items=\(official.items.count) first=\(firstItem.url.absoluteString) "
+                + "collectedAt=\(official.collectedAt.ISO8601Format())"
+        )
+    }
 }
