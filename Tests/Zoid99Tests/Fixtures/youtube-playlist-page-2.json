@@ -1,0 +1,18 @@
+{
+  "items": [
+    {
+      "id": "PLI_2",
+      "snippet": {
+        "publishedAt": "2026-07-22T09:00:00Z",
+        "channelId": "UC_REFERENCE",
+        "title": "Arabic model evaluation",
+        "description": "Results across Arabic benchmarks.",
+        "channelTitle": "Reference AI",
+        "resourceId": {
+          "kind": "youtube#video",
+          "videoId": "video-2"
+        }
+      }
+    }
+  ]
+}
