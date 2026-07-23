@@ -27,8 +27,7 @@ struct FixtureConnector: SourceConnector {
 struct ResearchPipeline: Sendable {
     func run(items: [SourceItem], now: Date = .now) -> ResearchOutput {
         let normalized = normalize(items)
-        let clusters = Dictionary(grouping: normalized, by: \.topicKey)
-        let opportunities = clusters.values.map { makeOpportunity(items: $0, now: now) }
+        let opportunities = storyClusters(normalized).map { makeOpportunity(items: $0, now: now) }
             .sorted { $0.score.total > $1.score.total }
         let comments = clusterComments(normalized.filter { $0.group == .comments })
         let notifications = opportunities.map {
@@ -49,29 +48,110 @@ struct ResearchPipeline: Sendable {
         )
     }
 
+    func run(
+        items: [SourceItem],
+        now: Date = .now,
+        provider: any AIAnalysisProvider,
+        policy: AIAnalysisPolicy = AIAnalysisPolicy()
+    ) async -> ResearchOutput {
+        var output = run(items: items, now: now)
+        let request = makeAIRequest(opportunities: output.opportunities, policy: policy)
+        guard !request.clusters.isEmpty else { return output }
+
+        for _ in 0..<policy.maxAttempts {
+            do {
+                let response = try await provider.analyze(request)
+                if let interpretations = AIAnalysisValidator.validate(response, request: request, policy: policy) {
+                    output.aiStatus = .applied
+                    output.aiInterpretations = interpretations
+                    return output
+                }
+            } catch AIAnalysisProviderError.unavailable {
+                output.aiStatus = .unavailableFallback
+                return output
+            } catch {
+                continue
+            }
+        }
+
+        output.aiStatus = .invalidOutputFallback
+        return output
+    }
+
     private func normalize(_ items: [SourceItem]) -> [SourceItem] {
-        var seen = Set<String>()
+        var seenIDs = Set<String>()
+        var seenURLs = Set<String>()
         return items
             .sorted { $0.publishedAt < $1.publishedAt }
-            .filter { seen.insert("\($0.group.rawValue):\($0.externalID)").inserted }
+            .filter {
+                let idKey = "\($0.group.rawValue):\($0.externalID)"
+                let urlKey = canonicalURL($0.url)
+                return seenIDs.insert(idKey).inserted && seenURLs.insert(urlKey).inserted
+            }
+    }
+
+    private func storyClusters(_ items: [SourceItem]) -> [[SourceItem]] {
+        guard !items.isEmpty else { return [] }
+        var parents = Array(items.indices)
+
+        func root(_ index: Int) -> Int {
+            var current = index
+            while parents[current] != current { current = parents[current] }
+            return current
+        }
+
+        for left in items.indices {
+            for right in items.indices where right > left {
+                guard areNearDuplicates(items[left], items[right]) else { continue }
+                let leftRoot = root(left)
+                let rightRoot = root(right)
+                if leftRoot != rightRoot { parents[rightRoot] = leftRoot }
+            }
+        }
+
+        return Dictionary(grouping: items.indices, by: root)
+            .values
+            .map { indexes in indexes.map { items[$0] } }
+    }
+
+    private func areNearDuplicates(_ left: SourceItem, _ right: SourceItem) -> Bool {
+        if normalizedKey(left.topicKey) == normalizedKey(right.topicKey) { return true }
+        let leftTokens = significantTokens("\(left.title) \(left.topicKey)")
+        let rightTokens = significantTokens("\(right.title) \(right.topicKey)")
+        let shared = leftTokens.intersection(rightTokens)
+        let denominator = max(1, min(leftTokens.count, rightTokens.count))
+        if Double(shared.count) / Double(denominator) >= 0.5 { return true }
+        return shared.contains {
+            $0.count >= 3 && $0.contains(where: \.isLetter) && $0.contains(where: \.isNumber)
+        }
     }
 
     private func makeOpportunity(items: [SourceItem], now: Date) -> Opportunity {
         let sorted = items.sorted { $0.publishedAt < $1.publishedAt }
-        let original = sorted.first(where: \.isOriginalSource)
-        let verified = items.contains(where: { $0.verification == .disputed })
-            ? VerificationState.disputed
-            : (original != nil && items.contains(where: { $0.verification == .confirmed })
-               ? .confirmed : .unverified)
+        let credibleOriginals = sorted.filter {
+            $0.group == .official && $0.isOriginalSource && $0.credibility >= 0.75
+        }
+        let original = credibleOriginals.first
+        let hasCredibleDispute = credibleOriginals.contains { $0.verification == .disputed }
+        let hasCredibleConfirmation = credibleOriginals.contains { $0.verification == .confirmed }
+        let verified: VerificationState = hasCredibleDispute
+            ? .disputed
+            : (hasCredibleConfirmation ? .confirmed : .unverified)
         let ageHours = max(0, now.timeIntervalSince(sorted[0].publishedAt) / 3600)
-        let freshness = ageHours < 12 ? 20 : ageHours < 36 ? 14 : 7
+        let freshness = ageHours < 12 ? 20 : ageHours < 36 ? 14 : ageHours < 96 ? 7 : 0
         let credibility = Int((items.map(\.credibility).max() ?? 0) * 20)
-        let momentum = min(20, items.count * 4 + Int(log10(Double(max(1, items.map(\.engagement).reduce(0, +))))) * 3)
+        let recentCount = items.filter { now.timeIntervalSince($0.publishedAt) <= 6 * 3_600 }.count
+        let priorCount = items.filter {
+            let age = now.timeIntervalSince($0.publishedAt)
+            return age > 6 * 3_600 && age <= 24 * 3_600
+        }.count
+        let engagementSignal = Int(log10(Double(max(1, items.map(\.engagement).reduce(0, +)))))
+        let momentum = min(20, items.count * 2 + max(0, recentCount - priorCount) * 3 + engagementSignal * 2)
         let creatorActivity = min(10, Set(items.filter { !$0.isOriginalSource }.map(\.author)).count * 3)
-        let hasArabic = items.contains { $0.language.hasPrefix("ar") }
-        let arabicGap = hasArabic ? 7 : 15
-        let regionalCountries = Set(items.map(\.country)).intersection(["EG", "SA", "AE", "OM"])
-        let regional = min(15, 7 + regionalCountries.count * 2)
+        let arabicCount = items.filter { $0.language.lowercased().hasPrefix("ar") }.count
+        let arabicGap = arabicCount == 0 ? 15 : arabicCount == 1 ? 9 : 4
+        let regionalCountries = Set(items.map { $0.country.uppercased() }).intersection(["EG", "SA", "AE", "OM"])
+        let regional = regionalCountries.isEmpty ? 0 : min(15, 5 + regionalCountries.count * 2)
         let score = ScoreBreakdown(
             freshness: freshness,
             credibility: credibility,
@@ -92,13 +172,80 @@ struct ResearchPipeline: Sendable {
             items: sorted,
             score: score,
             regionalExplanation: regionalCountries.isEmpty
-                ? "Global AI development with potential Egypt and Gulf relevance; local demand evidence is not yet available."
-                : "Signals include \(regionalCountries.sorted().joined(separator: ", ")) and are relevant to Egypt and Gulf audiences.",
-            coverageExplanation: hasArabic
-                ? "Arabic coverage exists. Review its depth before prioritizing."
+                ? "No collected evidence currently establishes Egypt, Saudi Arabia, UAE, or Oman relevance."
+                : "Collected evidence includes \(regionalCountries.sorted().joined(separator: ", ")); relevance is limited to those cited signals.",
+            coverageExplanation: arabicCount > 0
+                ? "\(arabicCount) Arabic-language source\(arabicCount == 1 ? "" : "s") found; review depth before treating the gap as closed."
                 : "No Arabic-language coverage appears in the collected evidence, indicating a strong coverage gap.",
             disposition: .active
         )
+    }
+
+    private func makeAIRequest(opportunities: [Opportunity], policy: AIAnalysisPolicy) -> AIAnalysisRequest {
+        var remaining = policy.maxInputItems
+        let clusters = opportunities.compactMap { opportunity -> AIAnalysisCluster? in
+            guard remaining > 0 else { return nil }
+            let sources = opportunity.items.prefix(remaining).map {
+                AIAnalysisSource(
+                    sourceID: "\($0.group.rawValue):\($0.externalID)",
+                    title: String($0.title.prefix(500)),
+                    summary: String($0.summary.prefix(1_000)),
+                    language: $0.language,
+                    country: $0.country
+                )
+            }
+            remaining -= sources.count
+            return AIAnalysisCluster(clusterID: opportunity.topicKey, sources: sources)
+        }
+        return AIAnalysisRequest(
+            schemaVersion: 1,
+            instruction: "Interpret only the supplied evidence. Cite sourceID values. Do not determine verification, invent facts, or add uncited claims.",
+            clusters: clusters
+        )
+    }
+
+    private func canonicalURL(_ url: URL) -> String {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return url.absoluteString.lowercased()
+        }
+        components.fragment = nil
+        components.host = components.host?.lowercased()
+        if components.path.count > 1 && components.path.hasSuffix("/") {
+            components.path.removeLast()
+        }
+        return components.string ?? url.absoluteString.lowercased()
+    }
+
+    private func normalizedKey(_ value: String) -> String {
+        value.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en"))
+            .unicodeScalars
+            .filter { CharacterSet.alphanumerics.contains($0) }
+            .map(String.init)
+            .joined()
+    }
+
+    private func significantTokens(_ value: String) -> Set<String> {
+        let stopwords: Set<String> = [
+            "a", "ai", "an", "and", "at", "first", "for", "in", "is", "it", "look",
+            "model", "new", "of", "on", "the", "to", "with"
+        ]
+        let folded = value.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en"))
+        let rawTokens = folded.components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .map(normalizedKey)
+            .filter { !$0.isEmpty }
+        let splitTokens = rawTokens
+            .map(normalizedKey)
+            .filter { $0.count >= 2 && !stopwords.contains($0) }
+        let joinedIdentifiers = zip(rawTokens, rawTokens.dropFirst())
+            .map(+)
+            .filter {
+                $0.count >= 3 && $0.count <= 20 &&
+                    $0.contains(where: \.isLetter) && $0.contains(where: \.isNumber)
+            }
+        let compactTokens = folded.components(separatedBy: .whitespacesAndNewlines)
+            .map(normalizedKey)
+            .filter { $0.count >= 2 && $0.count <= 40 && !stopwords.contains($0) }
+        return Set(splitTokens + compactTokens + joinedIdentifiers)
     }
 
     private func clusterComments(_ items: [SourceItem]) -> [CommentCluster] {
