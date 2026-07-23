@@ -14,7 +14,8 @@ let package = Package(
         .testTarget(
             name: "Zoid99Tests",
             dependencies: ["Zoid99"],
-            path: "Tests/Zoid99Tests"
+            path: "Tests/Zoid99Tests",
+            resources: [.process("Fixtures")]
         )
     ]
 )

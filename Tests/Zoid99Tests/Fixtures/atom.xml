@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+  <title>Official Research Updates</title>
+  <entry>
+    <id>tag:example.org,2026:paper-7</id>
+    <title>Reliable agent evaluation</title>
+    <link rel="alternate" href="https://research.example.org/papers/agent-evaluation?ref=feed"/>
+    <updated>2026-07-22T08:15:30Z</updated>
+    <author><name>Example Research</name></author>
+    <author><name>Second Author</name></author>
+    <summary type="html">&lt;p&gt;A reproducible evaluation method.&lt;/p&gt;</summary>
+  </entry>
+</feed>

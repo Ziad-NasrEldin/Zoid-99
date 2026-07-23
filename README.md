@@ -26,10 +26,19 @@ See `backend/README.md` for environment variables and startup instructions.
 
 ## Live integration status
 
-Live YouTube, Google Trends, Instagram, comments, official feeds, and X credentials are not bundled.
-The app shows each source as `Setup required` and never presents fixture evidence as live.
+Credential-free RSS 2.0, Atom, and GitHub Releases connectors are available for the verified official starter catalog.
+The current app screen still uses deterministic fixtures and never presents fixture evidence as live.
+Live YouTube, Google Trends, Instagram, comments, and X credentials are not bundled.
 Native notification permission is requested only through the explicit setup or settings action.
 Always-on monitoring while the Mac sleeps requires a separately deployed monitoring service.
+
+Run the opt-in public-feed validation with:
+
+```sh
+ZOID99_RUN_LIVE_FEEDS=1 swift test --filter LivePublicFeedTests
+```
+
+The normal test suite never requires network access.
 
 ## Manual validation checklist
 

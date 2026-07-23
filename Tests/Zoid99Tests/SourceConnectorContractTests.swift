@@ -1,0 +1,270 @@
+import Foundation
+import XCTest
+@testable import Zoid99
+
+final class SourceConnectorContractTests: XCTestCase {
+    func testRSS20MapsIntoNormalizedSourceItems() async throws {
+        let transport = StubHTTPTransport(
+            responses: [.response(status: 200, headers: [
+                "ETag": "\"rss-v1\"",
+                "Last-Modified": "Tue, 21 Jul 2026 15:00:00 GMT"
+            ], body: try fixture("rss20.xml"))]
+        )
+        let connector = PublicFeedConnector(
+            source: OfficialSource(
+                id: "example-product",
+                name: "Example Product",
+                kind: .rss,
+                endpoint: URL(string: "https://example.com/rss.xml")!,
+                homepage: URL(string: "https://example.com")!,
+                language: "en",
+                country: "US"
+            ),
+            transport: transport,
+            now: { Date(timeIntervalSince1970: 1_784_768_400) }
+        )
+
+        let result = await connector.collect()
+
+        XCTAssertEqual(result.state, .available)
+        XCTAssertEqual(result.items.count, 1)
+        XCTAssertEqual(result.items[0].group, .official)
+        XCTAssertEqual(result.items[0].externalID, "release-42")
+        XCTAssertEqual(result.items[0].title, "Model 42 is available")
+        XCTAssertEqual(result.items[0].summary, "Availability and safety details.")
+        XCTAssertEqual(result.items[0].author, "Research Team")
+        XCTAssertEqual(result.items[0].url.absoluteString, "https://example.com/news/model-42")
+        XCTAssertEqual(result.items[0].publishedAt, Date(timeIntervalSince1970: 1_784_644_200))
+        XCTAssertEqual(result.items[0].language, "en-US")
+        XCTAssertEqual(result.items[0].country, "US")
+        XCTAssertTrue(result.items[0].topicKey.hasPrefix("unclustered-"))
+        XCTAssertTrue(result.items[0].isOriginalSource)
+        XCTAssertEqual(result.validators?.etag, "\"rss-v1\"")
+        let pipeline = ResearchPipeline().run(
+            items: result.items,
+            now: Date(timeIntervalSince1970: 1_784_768_400)
+        )
+        XCTAssertEqual(pipeline.normalizedItems, result.items)
+        XCTAssertEqual(pipeline.opportunities.first?.originalSource, result.items[0])
+    }
+
+    func testAtomMapsOriginalAuthorTimestampAndMetadata() async throws {
+        let connector = connector(
+            kind: .atom,
+            body: try fixture("atom.xml"),
+            now: Date(timeIntervalSince1970: 1_784_764_800)
+        )
+
+        let result = await connector.collect()
+
+        XCTAssertEqual(result.state, .available)
+        XCTAssertEqual(result.items.count, 1)
+        XCTAssertEqual(result.items[0].externalID, "tag:example.org,2026:paper-7")
+        XCTAssertEqual(result.items[0].author, "Example Research, Second Author")
+        XCTAssertEqual(result.items[0].url.absoluteString, "https://research.example.org/papers/agent-evaluation")
+        XCTAssertEqual(result.items[0].publishedAt, Date(timeIntervalSince1970: 1_784_708_130))
+        XCTAssertEqual(result.items[0].language, "en")
+        XCTAssertEqual(result.items[0].country, "US")
+    }
+
+    func testGitHubReleasesUsesPublicAPIAndExcludesDrafts() async throws {
+        let connector = connector(
+            kind: .githubReleases,
+            body: try fixture("github-releases.json"),
+            now: Date(timeIntervalSince1970: 1_784_764_800)
+        )
+
+        let result = await connector.collect()
+
+        XCTAssertEqual(result.items.count, 1)
+        XCTAssertEqual(result.items[0].externalID, "91002")
+        XCTAssertEqual(result.items[0].title, "Version 2.1.0")
+        XCTAssertEqual(result.items[0].author, "example-ai")
+        XCTAssertEqual(result.items[0].url.absoluteString, "https://github.com/example/ai-runtime/releases/tag/v2.1.0")
+        XCTAssertEqual(result.items[0].publishedAt, Date(timeIntervalSince1970: 1_784_546_553))
+    }
+
+    func testConditionalRequestUsesCachedPayloadOnNotModified() async throws {
+        let transport = StubHTTPTransport(responses: [
+            .response(status: 200, headers: [
+                "ETag": "\"rss-v1\"",
+                "Last-Modified": "Tue, 21 Jul 2026 15:00:00 GMT"
+            ], body: try fixture("rss20.xml")),
+            .response(status: 304, headers: [:], body: Data())
+        ])
+        let connector = makeConnector(kind: .rss, transport: transport)
+
+        let first = await connector.collect()
+        let second = await connector.collect()
+        let requests = await transport.recordedRequests()
+
+        XCTAssertEqual(first.state, .available)
+        XCTAssertEqual(second.state, .notModified)
+        XCTAssertEqual(second.items, first.items)
+        XCTAssertEqual(requests.count, 2)
+        XCTAssertEqual(requests[1].headers["If-None-Match"], "\"rss-v1\"")
+        XCTAssertEqual(requests[1].headers["If-Modified-Since"], "Tue, 21 Jul 2026 15:00:00 GMT")
+        XCTAssertEqual(requests[1].timeout, 15)
+    }
+
+    func testRateLimitUnavailableAndDelayedStatesAreExplicit() async throws {
+        let rateLimited = makeConnector(
+            kind: .rss,
+            transport: StubHTTPTransport(responses: [
+                .response(status: 429, headers: ["Retry-After": "120"], body: Data())
+            ])
+        )
+        let unavailable = makeConnector(
+            kind: .rss,
+            transport: StubHTTPTransport(responses: [
+                .response(status: 503, headers: [:], body: Data())
+            ])
+        )
+        let githubRateLimited = makeConnector(
+            kind: .githubReleases,
+            transport: StubHTTPTransport(responses: [
+                .response(status: 403, headers: [
+                    "X-RateLimit-Remaining": "0",
+                    "X-RateLimit-Reset": "1784768520"
+                ], body: Data())
+            ]),
+            now: Date(timeIntervalSince1970: 1_784_768_400)
+        )
+        let delayed = PublicFeedConnector(
+            source: source(kind: .rss),
+            transport: StubHTTPTransport(responses: [
+                .response(status: 200, headers: [:], body: try fixture("rss20.xml"))
+            ]),
+            delayedAfter: 60,
+            now: { Date(timeIntervalSince1970: 1_784_768_400) }
+        )
+
+        let rateLimitedResult = await rateLimited.collect()
+        let unavailableResult = await unavailable.collect()
+        let githubRateLimitedResult = await githubRateLimited.collect()
+        let delayedResult = await delayed.collect()
+        XCTAssertEqual(rateLimitedResult.state, .rateLimited(retryAfter: 120))
+        XCTAssertEqual(unavailableResult.state, .unavailable(statusCode: 503))
+        XCTAssertEqual(githubRateLimitedResult.state, .rateLimited(retryAfter: 120))
+        XCTAssertEqual(delayedResult.state, .delayed)
+    }
+
+    func testRetryPolicyIsBoundedAndRetriesOnlyTransientFailures() async throws {
+        let recoveringBase = StubHTTPTransport(responses: [
+            .failure(URLError(.timedOut)),
+            .response(status: 200, headers: [:], body: try fixture("rss20.xml"))
+        ])
+        let recovering = RetryingHTTPTransport(
+            base: recoveringBase,
+            maximumAttempts: 3,
+            sleeper: { _ in }
+        )
+
+        let recovered = try await recovering.send(HTTPRequest(url: source(kind: .rss).endpoint))
+        let recoveringCount = await recoveringBase.requestCount()
+
+        XCTAssertEqual(recovered.statusCode, 200)
+        XCTAssertEqual(recoveringCount, 2)
+
+        let failingBase = StubHTTPTransport(responses: [
+            .failure(URLError(.timedOut)),
+            .failure(URLError(.networkConnectionLost)),
+            .failure(URLError(.cannotConnectToHost))
+        ])
+        let bounded = RetryingHTTPTransport(base: failingBase, maximumAttempts: 9, sleeper: { _ in })
+        do {
+            _ = try await bounded.send(HTTPRequest(url: source(kind: .rss).endpoint))
+            XCTFail("Expected the bounded retry policy to surface the final failure.")
+        } catch {
+            let failingCount = await failingBase.requestCount()
+            XCTAssertEqual(failingCount, 3)
+        }
+    }
+
+    func testMalformedResponseNeverInventsItems() async {
+        let connector = connector(kind: .rss, body: Data("<rss><broken>".utf8))
+
+        let result = await connector.collect()
+
+        XCTAssertTrue(result.items.isEmpty)
+        XCTAssertEqual(result.state, .unavailable(statusCode: nil))
+    }
+
+    private func fixture(_ name: String) throws -> Data {
+        let url = Bundle.module.url(forResource: name, withExtension: nil)
+        return try Data(contentsOf: XCTUnwrap(url))
+    }
+
+    private func connector(
+        kind: OfficialSourceKind,
+        body: Data,
+        now: Date = Date(timeIntervalSince1970: 1_784_768_400)
+    ) -> PublicFeedConnector {
+        makeConnector(
+            kind: kind,
+            transport: StubHTTPTransport(responses: [
+                .response(status: 200, headers: [:], body: body)
+            ]),
+            now: now
+        )
+    }
+
+    private func makeConnector(
+        kind: OfficialSourceKind,
+        transport: any HTTPTransport,
+        now: Date = Date(timeIntervalSince1970: 1_784_768_400)
+    ) -> PublicFeedConnector {
+        PublicFeedConnector(
+            source: source(kind: kind),
+            transport: transport,
+            now: { now }
+        )
+    }
+
+    private func source(kind: OfficialSourceKind) -> OfficialSource {
+        OfficialSource(
+            id: "example",
+            name: "Example Official Source",
+            kind: kind,
+            endpoint: URL(string: kind == .githubReleases
+                ? "https://api.github.com/repos/example/ai-runtime/releases"
+                : "https://example.com/feed")!,
+            homepage: URL(string: "https://example.com")!,
+            language: "en",
+            country: "US"
+        )
+    }
+}
+
+private actor StubHTTPTransport: HTTPTransport {
+    enum Stub {
+        case response(status: Int, headers: [String: String], body: Data)
+        case failure(Error)
+    }
+
+    private var responses: [Stub]
+    private(set) var requests: [HTTPRequest] = []
+
+    init(responses: [Stub]) {
+        self.responses = responses
+    }
+
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        requests.append(request)
+        guard !responses.isEmpty else { throw URLError(.badServerResponse) }
+        switch responses.removeFirst() {
+        case let .response(status, headers, body):
+            return HTTPResponse(statusCode: status, headers: headers, body: body)
+        case let .failure(error):
+            throw error
+        }
+    }
+
+    func recordedRequests() -> [HTTPRequest] {
+        requests
+    }
+
+    func requestCount() -> Int {
+        requests.count
+    }
+}
