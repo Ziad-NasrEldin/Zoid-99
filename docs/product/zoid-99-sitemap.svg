@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="2000" height="2000" viewBox="0 0 2000 2000">
+  <rect width="2000" height="2000" fill="#F5F5F5"/>
+  <rect x="50" y="40" width="1900" height="1430" rx="0" fill="#FFFFFF" stroke="#E0E0E0"/>
+  <style>
+    text { font-family: "Times New Roman", Baskerville, Georgia, serif; }
+    .title { font-size: 40px; font-weight: 400; fill: #0D0A0A; letter-spacing: 1px; }
+    .sub { font-size: 22px; fill: #545554; }
+    .label { font-size: 14px; font-weight: 400; fill: #545554; letter-spacing: 1.5px; }
+    .node-title { font-size: 25px; font-weight: 400; fill: #0D0A0A; }
+    .body { font-size: 17px; fill: #545554; }
+    .arrow { fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+  </style>
+  <defs>
+    <marker id="arrow-ink" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#0D0A0A"/></marker>
+    <marker id="arrow-muted" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#545554"/></marker>
+    <marker id="arrow-seal" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#C23A2E"/></marker>
+  </defs>
+  <text class="title" x="90" y="112">ZOID 99</text>
+  <text class="sub" x="90" y="152">SwiftUI macOS research intelligence app · MVP sitemap</text>
+  <text class="label" x="1500" y="98">NAVIGATION MODEL</text>
+  <text x="1500" y="132" font-size="24" font-weight="400" fill="#0D0A0A">NavigationSplitView</text>
+
+  <rect x="760" y="180" width="440" height="78" rx="0" fill="#0D0A0A"/>
+  <text x="980" y="229" text-anchor="middle" font-size="29" font-weight="400" fill="#fff">Launch Zoid 99</text>
+  <path class="arrow" d="M760 220 H440 V282" stroke="#545554" marker-end="url(#arrow-muted)"/>
+  <text x="552" y="209" font-size="14" fill="#545554">First run</text>
+  <path class="arrow" d="M1200 220 H1370" stroke="#545554" marker-end="url(#arrow-muted)"/>
+  <text x="1244" y="209" font-size="14" fill="#545554">Returning</text>
+
+  <g>
+    <rect x="80" y="290" width="440" height="270" rx="0" fill="#FAFAFA" stroke="#0D0A0A" stroke-width="1"/>
+    <rect x="80" y="290" width="1" height="270" fill="#0D0A0A"/>
+    <text class="node-title" x="104" y="333">First-run setup</text>
+    <text class="body" x="104" y="376">
+      <tspan x="104" dy="0">1  Welcome and product promise</tspan>
+      <tspan x="104" dy="32">2  Connect the six research sources</tspan>
+      <tspan x="104" dy="32">3  Choose AI topics, creators and regions</tspan>
+      <tspan x="104" dy="32">4  Allow macOS notifications</tspan>
+      <tspan x="104" dy="32">5  Confirm refresh and privacy settings</tspan>
+    </text>
+  </g>
+
+  <rect x="1370" y="180" width="430" height="78" rx="0" fill="#FAFAFA" stroke="#0D0A0A" stroke-width="1"/>
+  <text x="1585" y="229" text-anchor="middle" font-size="29" font-weight="400" fill="#0D0A0A">Main app shell</text>
+  <path class="arrow" d="M520 425 C880 425 1030 320 1370 240" stroke="#0D0A0A" marker-end="url(#arrow-ink)"/>
+
+  <text class="label" x="90" y="640">SIDEBAR DESTINATIONS</text>
+  
+  <g>
+    <rect x="80" y="665" width="350" height="185" rx="0" fill="#0D0A0A" stroke="#0D0A0A" stroke-width="1"/>
+    <rect x="80" y="665" width="1" height="185" fill="#0D0A0A"/>
+    <text class="node-title" x="104" y="708" style="fill:#FFFFFF">Today</text>
+    <text class="body" x="104" y="746" style="fill:#FFFFFF"><tspan x="104" dy="0">Daily briefing</tspan><tspan x="104" dy="27">Urgent opportunities</tspan><tspan x="104" dy="27">Saved research</tspan><tspan x="104" dy="27">Source health summary</tspan></text>
+  </g>
+  <g>
+    <rect x="455" y="665" width="350" height="185" rx="0" fill="#FFFFFF" stroke="#545554" stroke-width="1"/>
+    <rect x="455" y="665" width="1" height="185" fill="#545554"/>
+    <text class="node-title" x="479" y="708">Live Radar</text>
+    <text class="body" x="479" y="746"><tspan x="479" dy="0">Unified six-source feed</tspan><tspan x="479" dy="27">Breaking and rising filters</tspan><tspan x="479" dy="27">Duplicate story clusters</tspan><tspan x="479" dy="27">Freshness and momentum</tspan></text>
+  </g>
+  <g>
+    <rect x="830" y="665" width="350" height="185" rx="0" fill="#FAFAFA" stroke="#545554" stroke-width="1"/>
+    <rect x="830" y="665" width="1" height="185" fill="#545554"/>
+    <text class="node-title" x="854" y="708">Topics</text>
+    <text class="body" x="854" y="746"><tspan x="854" dy="0">Search or follow a topic</tspan><tspan x="854" dy="27">Cross-source evidence</tspan><tspan x="854" dy="27">US versus Arab coverage</tspan><tspan x="854" dy="27">Arabic content gaps</tspan></text>
+  </g>
+  <g>
+    <rect x="1205" y="665" width="350" height="185" rx="0" fill="#FFFFFF" stroke="#545554" stroke-width="1"/>
+    <rect x="1205" y="665" width="1" height="185" fill="#545554"/>
+    <text class="node-title" x="1229" y="708">Comments</text>
+    <text class="body" x="1229" y="746"><tspan x="1229" dy="0">Your channel comments</tspan><tspan x="1229" dy="27">Reference creator comments</tspan><tspan x="1229" dy="27">Question clusters</tspan><tspan x="1229" dy="27">Demand and confusion signals</tspan></text>
+  </g>
+  <g>
+    <rect x="1580" y="665" width="350" height="185" rx="0" fill="#FAFAFA" stroke="#545554" stroke-width="1"/>
+    <rect x="1580" y="665" width="1" height="185" fill="#545554"/>
+    <text class="node-title" x="1604" y="708">Watchlists</text>
+    <text class="body" x="1604" y="746"><tspan x="1604" dy="0">Creators and official sources</tspan><tspan x="1604" dy="27">Keywords and products</tspan><tspan x="1604" dy="27">Countries and languages</tspan><tspan x="1604" dy="27">Alert priority</tspan></text>
+  </g>
+
+  <path class="arrow" d="M1585 258 C1585 470 255 485 255 655" stroke="#545554" marker-end="url(#arrow-muted)"/><path class="arrow" d="M1585 258 C1585 470 630 485 630 655" stroke="#545554" marker-end="url(#arrow-muted)"/><path class="arrow" d="M1585 258 C1585 470 1005 485 1005 655" stroke="#545554" marker-end="url(#arrow-muted)"/><path class="arrow" d="M1585 258 C1585 470 1380 485 1380 655" stroke="#545554" marker-end="url(#arrow-muted)"/><path class="arrow" d="M1585 258 C1585 470 1755 485 1755 655" stroke="#545554" marker-end="url(#arrow-muted)"/>
+
+  <g>
+    <rect x="455" y="900" width="560" height="155" rx="0" fill="#F5E5E3" stroke="#C23A2E" stroke-width="1"/>
+    <rect x="455" y="900" width="1" height="155" fill="#C23A2E"/>
+    <text class="node-title" x="479" y="943">Notifications</text>
+    <text class="body" x="479" y="982"><tspan x="479">Inbox · immediate alerts · digests</tspan><tspan x="479" dy="30">Alert rules · mute · watch · dismiss</tspan></text>
+  </g>
+  <g>
+    <rect x="1040" y="900" width="560" height="155" rx="0" fill="#F5F5F5" stroke="#545554" stroke-width="1"/>
+    <rect x="1040" y="900" width="1" height="155" fill="#545554"/>
+    <text class="node-title" x="1064" y="943">Sources &amp; Settings</text>
+    <text class="body" x="1064" y="980"><tspan x="1064">YouTube · Google Trends · Instagram</tspan><tspan x="1064" dy="28">Comments · US/official sources · X</tspan><tspan x="1064" dy="28">Connection health · refresh · privacy</tspan></text>
+  </g>
+  <path class="arrow" d="M1585 258 C1420 520 735 620 735 890" stroke="#C23A2E" marker-end="url(#arrow-seal)"/>
+  <path class="arrow" d="M1585 258 C1500 520 1320 620 1320 890" stroke="#545554" marker-end="url(#arrow-muted)"/>
+
+  <text class="label" x="90" y="1130">SHARED DETAIL DESTINATION</text>
+  <g>
+    <rect x="260" y="1150" width="1480" height="180" rx="0" fill="#F5E5E3" stroke="#C23A2E" stroke-width="1"/>
+    <rect x="260" y="1150" width="1" height="180" fill="#C23A2E"/>
+    <text class="node-title" x="292" y="1194">Opportunity Detail</text>
+    <text class="body" x="292" y="1235">
+      <tspan x="292">Original source and verification · story timeline · creator coverage · cross-source signals</tspan>
+      <tspan x="292" dy="34">Momentum and freshness · Arabic coverage gap · Egypt/Gulf relevance · save, watch or dismiss</tspan>
+    </text>
+  </g>
+  <path class="arrow" d="M255 850 C255 1030 585 1040 585 1140" stroke="#0D0A0A" marker-end="url(#arrow-ink)"/>
+  <path class="arrow" d="M630 850 C630 1010 810 1040 810 1140" stroke="#545554" marker-end="url(#arrow-muted)"/>
+  <path class="arrow" d="M1005 850 V1140" stroke="#545554" marker-end="url(#arrow-muted)"/>
+
+  <rect x="500" y="1370" width="1000" height="62" rx="0" fill="#F5E5E3" stroke="#C23A2E" stroke-width="1" stroke-dasharray="10 8"/>
+  <text x="1000" y="1409" text-anchor="middle" font-size="20" font-weight="400" fill="#8F211A">OUT OF MVP · Content Studio · Content Calendar · Analytics Coach</text>
+</svg>
