@@ -1,9 +1,10 @@
-Status: ready-for-agent
+Status: ready-for-human
 
-# Integrate the six completed task commits
+# Integrate the completed production baseline
 
-Cherry-pick in contract order: `8db1159`, `200f5ee`, `0663af1`, `2195bd0`, `958082e`, then `2088071`.
-Resolve overlaps against the current normalized Source Item and sync contracts.
-Run Swift and backend suites, PostgreSQL integration tests, release builds, and `git diff --check`.
-Prove one credential-free official item reaches backend storage, native synchronization, Today or Radar, and Opportunity Detail with its original URL and timestamp.
-Do not describe credential-gated providers as live.
+Integrated in contract order from `main` at `5aba082`: `e45dad7`, `200f5ee`, `0663af1`, `2195bd0`, `958082e`, `2088071`, and `84f3121`.
+The combined baseline preserves the normalized Source Item, source-health, persistence, credential, and private single-user contracts.
+Combined testing found and fixed oversized ingestion requests and unrelated Story Cluster merging.
+The credential-free live proof collected 90 official items, persisted 88 distinct opportunities, and rendered them in the native Today surface with source links and timestamps.
+Swift, backend, PostgreSQL integration, release build, typecheck, audit, whitespace, and credential-scan evidence is recorded in `COMBINED-BASELINE-LIVE-PROOF.md`.
+YouTube, Google Trends, X, Instagram, and live AI remain credential-gated and are not described as live.

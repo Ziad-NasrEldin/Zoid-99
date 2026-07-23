@@ -55,6 +55,51 @@ final class IngestionSynchronizationAcceptanceTests: XCTestCase {
         XCTAssertEqual(items.first?["url"] as? String, item.url.absoluteString)
         XCTAssertEqual(items.first?["publishedAt"] as? String, ISO8601DateFormatter().string(from: item.publishedAt))
     }
+
+    func testLargeStoryClusterIsSplitIntoRequestsBelowBackendBodyLimit() async throws {
+        let base = Date(timeIntervalSince1970: 1_784_909_100)
+        let items = (0..<10).map { index in
+            SourceItem(
+                id: UUID(),
+                group: .official,
+                externalID: "large-official-entry-\(index)",
+                title: "Large official release \(index)",
+                summary: String(repeating: "Evidence \(index) ", count: 700),
+                author: "Official publisher",
+                url: URL(string: "https://official.example/releases/large-\(index)")!,
+                publishedAt: base.addingTimeInterval(TimeInterval(index)),
+                collectedAt: base.addingTimeInterval(100),
+                language: "en",
+                country: "US",
+                topicKey: "large-official-release",
+                isOriginalSource: true,
+                credibility: 1,
+                engagement: index,
+                verification: .confirmed,
+                dataTruth: .live
+            )
+        }
+        let connector = LargeAcceptanceConnector(items: items)
+        let recorder = RequestRecorder(item: items[0])
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [AcceptanceURLProtocol.self]
+        AcceptanceURLProtocol.recorder = recorder
+        let sync = BackendResearchSync(
+            baseURL: URL(string: "https://backend.example")!,
+            token: String(repeating: "t", count: 32),
+            session: URLSession(configuration: configuration),
+            connectors: [connector]
+        )
+
+        let results = await sync.synchronize()
+
+        XCTAssertEqual(results.first { $0.group == .official }?.state, .connected)
+        let bodySizes = await recorder.ingestionBodySizes()
+        XCTAssertGreaterThan(bodySizes.count, 1)
+        XCTAssertTrue(bodySizes.allSatisfy { $0 < 64 * 1024 })
+        let externalIDs = try await recorder.ingestedExternalIDs()
+        XCTAssertEqual(externalIDs, Set(items.map(\.externalID)))
+    }
 }
 
 private struct AcceptanceConnector: ProductionSourceConnector {
@@ -73,6 +118,29 @@ private struct AcceptanceConnector: ProductionSourceConnector {
         ConnectorCollection(
             items: [item], state: .available, validators: nil,
             collectedAt: item.collectedAt, evidence: "1 official item mapped."
+        )
+    }
+}
+
+private struct LargeAcceptanceConnector: ProductionSourceConnector {
+    let items: [SourceItem]
+    let source = OfficialSource(
+        id: "large-acceptance",
+        name: "Large Acceptance Official Feed",
+        kind: .rss,
+        endpoint: URL(string: "https://official.example/large-feed.xml")!,
+        homepage: URL(string: "https://official.example")!,
+        language: "en",
+        country: "US"
+    )
+
+    func collect() async -> ConnectorCollection {
+        ConnectorCollection(
+            items: items,
+            state: .available,
+            validators: nil,
+            collectedAt: items[0].collectedAt,
+            evidence: "\(items.count) official items mapped."
         )
     }
 }
@@ -119,7 +187,7 @@ private final class AcceptanceURLProtocol: URLProtocol, @unchecked Sendable {
 private actor RequestRecorder {
     private let item: SourceItem
     private var recordedPaths: [String] = []
-    private var ingestion = Data()
+    private var ingestionBodies: [Data] = []
 
     init(item: SourceItem) {
         self.item = item
@@ -128,7 +196,10 @@ private actor RequestRecorder {
     func response(for request: URLRequest, body: Data) -> (Int, [String: String], Data) {
         recordedPaths.append(request.url!.path)
         if request.url!.path == "/v1/ingestion" {
-            ingestion = body
+            ingestionBodies.append(body)
+            if body.count >= 64 * 1024 {
+                return (413, [:], Data(#"{"error":"payload_too_large"}"#.utf8))
+            }
             return (202, [:], Data(#"{"acceptedBatches":1,"opportunityIDs":["20000000-0000-4000-8000-000000000099"]}"#.utf8))
         }
         let formatter = ISO8601DateFormatter()
@@ -172,6 +243,20 @@ private actor RequestRecorder {
     func paths() -> [String] { recordedPaths }
 
     func ingestionJSON() throws -> [String: Any] {
-        try XCTUnwrap(JSONSerialization.jsonObject(with: ingestion) as? [String: Any])
+        let ingestion = try XCTUnwrap(ingestionBodies.first)
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: ingestion) as? [String: Any])
+    }
+
+    func ingestionBodySizes() -> [Int] { ingestionBodies.map(\.count) }
+
+    func ingestedExternalIDs() throws -> Set<String> {
+        try ingestionBodies.reduce(into: []) { result, body in
+            let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+            let batches = try XCTUnwrap(json["batches"] as? [[String: Any]])
+            for batch in batches {
+                let items = try XCTUnwrap(batch["sourceItems"] as? [[String: Any]])
+                result.formUnion(items.compactMap { $0["externalID"] as? String })
+            }
+        }
     }
 }

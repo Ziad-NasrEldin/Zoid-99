@@ -1,6 +1,8 @@
 import Foundation
 
 actor BackendResearchSync {
+    private static let maximumIngestionBodyBytes = 60 * 1024
+
     private let baseURL: URL
     private let token: String
     private let session: URLSession
@@ -60,33 +62,105 @@ actor BackendResearchSync {
 
     private func ingest(output: ResearchOutput, sourceHealth: [APIHealth]) async throws {
         let notifications = Dictionary(uniqueKeysWithValues: output.notifications.map { ($0.opportunityID, $0) })
-        let batches = output.opportunities.map { opportunity in
-                IngestionBatch(
-                    clusterKey: opportunity.topicKey,
-                    topicKey: opportunity.topicKey,
-                    verification: opportunity.verification,
-                    originState: opportunity.originalSource == nil ? "Unknown" : "Identified",
-                    originalSource: opportunity.originalSource.map {
-                        OriginalSource(group: $0.group, externalID: $0.externalID)
-                    },
-                    sourceItems: opportunity.items.map(APIItem.init),
-                    opportunity: APIOpportunityInput(opportunity),
-                    notification: notifications[opportunity.id].map(APINotificationInput.init)
-                )
-            }
-        for start in stride(from: 0, to: batches.count, by: 5) {
-            let end = min(start + 5, batches.count)
-            let payload = IngestionRequest(
-                sourceHealth: sourceHealth,
-                batches: Array(batches[start..<end])
+        let batches = try output.opportunities.flatMap { opportunity in
+            try ingestionBatches(
+                for: opportunity,
+                notification: notifications[opportunity.id],
+                sourceHealth: sourceHealth
             )
-            var request = authorizedRequest(path: "v1/ingestion", method: "POST")
-            request.httpBody = try apiEncoder.encode(payload)
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            let (data, response) = try await sendWithRetry(request)
-            guard response.statusCode == 202 else {
-                throw SyncError.http(response.statusCode, String(data: data, encoding: .utf8) ?? "")
+        }
+        var requestBatches: [IngestionBatch] = []
+        for batch in batches {
+            let candidate = requestBatches + [batch]
+            if try encodedBodySize(sourceHealth: sourceHealth, batches: candidate) <= Self.maximumIngestionBodyBytes {
+                requestBatches = candidate
+            } else {
+                try await sendIngestion(sourceHealth: sourceHealth, batches: requestBatches)
+                requestBatches = [batch]
             }
+        }
+        try await sendIngestion(sourceHealth: sourceHealth, batches: requestBatches)
+    }
+
+    private func ingestionBatches(
+        for opportunity: Opportunity,
+        notification: NotificationRecord?,
+        sourceHealth: [APIHealth]
+    ) throws -> [IngestionBatch] {
+        let original = opportunity.originalSource
+        let remaining = opportunity.items.filter {
+            guard let original else { return true }
+            return $0.group != original.group || $0.externalID != original.externalID
+        }
+        var chunks: [[SourceItem]] = []
+        var current = original.map { [$0] } ?? []
+
+        for item in remaining {
+            let candidate = current + [item]
+            let batch = makeIngestionBatch(
+                opportunity: opportunity,
+                sourceItems: candidate,
+                notification: notification
+            )
+            if try encodedBodySize(sourceHealth: sourceHealth, batches: [batch]) <= Self.maximumIngestionBodyBytes {
+                current = candidate
+            } else {
+                guard !current.isEmpty else { throw SyncError.payloadTooLarge }
+                chunks.append(current)
+                current = original.map { [$0, item] } ?? [item]
+                let next = makeIngestionBatch(
+                    opportunity: opportunity,
+                    sourceItems: current,
+                    notification: notification
+                )
+                guard try encodedBodySize(sourceHealth: sourceHealth, batches: [next])
+                        <= Self.maximumIngestionBodyBytes else {
+                    throw SyncError.payloadTooLarge
+                }
+            }
+        }
+        if !current.isEmpty {
+            chunks.append(current)
+        }
+        return chunks.map {
+            makeIngestionBatch(opportunity: opportunity, sourceItems: $0, notification: notification)
+        }
+    }
+
+    private func makeIngestionBatch(
+        opportunity: Opportunity,
+        sourceItems: [SourceItem],
+        notification: NotificationRecord?
+    ) -> IngestionBatch {
+        IngestionBatch(
+            clusterKey: opportunity.topicKey,
+            topicKey: opportunity.topicKey,
+            verification: opportunity.verification,
+            originState: opportunity.originalSource == nil ? "Unknown" : "Identified",
+            originalSource: opportunity.originalSource.map {
+                OriginalSource(group: $0.group, externalID: $0.externalID)
+            },
+            sourceItems: sourceItems.map(APIItem.init),
+            opportunity: APIOpportunityInput(opportunity),
+            notification: notification.map(APINotificationInput.init)
+        )
+    }
+
+    private func encodedBodySize(sourceHealth: [APIHealth], batches: [IngestionBatch]) throws -> Int {
+        try apiEncoder.encode(IngestionRequest(sourceHealth: sourceHealth, batches: batches)).count
+    }
+
+    private func sendIngestion(sourceHealth: [APIHealth], batches: [IngestionBatch]) async throws {
+        guard !batches.isEmpty else { return }
+        let payload = IngestionRequest(sourceHealth: sourceHealth, batches: batches)
+        let body = try apiEncoder.encode(payload)
+        guard body.count <= Self.maximumIngestionBodyBytes else { throw SyncError.payloadTooLarge }
+        var request = authorizedRequest(path: "v1/ingestion", method: "POST")
+        request.httpBody = body
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let (data, response) = try await sendWithRetry(request)
+        guard response.statusCode == 202 else {
+            throw SyncError.http(response.statusCode, String(data: data, encoding: .utf8) ?? "")
         }
     }
 
@@ -192,12 +266,14 @@ actor BackendResearchSync {
 private enum SyncError: LocalizedError {
     case http(Int, String)
     case invalidResponse
+    case payloadTooLarge
 
     var errorDescription: String? {
         switch self {
         case .http(let status, let detail):
             "Backend returned HTTP \(status)\(detail.isEmpty ? "." : ": \(String(detail.prefix(1_000)))")"
         case .invalidResponse: "Backend response was invalid."
+        case .payloadTooLarge: "One normalized source item exceeds the safe backend ingestion limit."
         }
     }
 }

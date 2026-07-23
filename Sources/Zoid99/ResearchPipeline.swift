@@ -92,37 +92,30 @@ struct ResearchPipeline: Sendable {
 
     private func storyClusters(_ items: [SourceItem]) -> [[SourceItem]] {
         guard !items.isEmpty else { return [] }
-        var parents = Array(items.indices)
-
-        func root(_ index: Int) -> Int {
-            var current = index
-            while parents[current] != current { current = parents[current] }
-            return current
-        }
-
-        for left in items.indices {
-            for right in items.indices where right > left {
-                guard areNearDuplicates(items[left], items[right]) else { continue }
-                let leftRoot = root(left)
-                let rightRoot = root(right)
-                if leftRoot != rightRoot { parents[rightRoot] = leftRoot }
+        var clusters: [[SourceItem]] = []
+        for item in items {
+            if let index = clusters.firstIndex(where: { cluster in
+                cluster.allSatisfy { areNearDuplicates($0, item) }
+            }) {
+                clusters[index].append(item)
+            } else {
+                clusters.append([item])
             }
         }
-
-        return Dictionary(grouping: items.indices, by: root)
-            .values
-            .map { indexes in indexes.map { items[$0] } }
+        return clusters
     }
 
     private func areNearDuplicates(_ left: SourceItem, _ right: SourceItem) -> Bool {
         if normalizedKey(left.topicKey) == normalizedKey(right.topicKey) { return true }
-        let leftTokens = significantTokens("\(left.title) \(left.topicKey)")
-        let rightTokens = significantTokens("\(right.title) \(right.topicKey)")
+        let leftTokens = significantTokens(left.title)
+        let rightTokens = significantTokens(right.title)
         let shared = leftTokens.intersection(rightTokens)
         let denominator = max(1, min(leftTokens.count, rightTokens.count))
-        if Double(shared.count) / Double(denominator) >= 0.5 { return true }
+        if shared.count >= 2, Double(shared.count) / Double(denominator) >= 0.6 { return true }
         return shared.contains {
-            $0.count >= 3 && $0.contains(where: \.isLetter) && $0.contains(where: \.isNumber)
+            $0.count >= 4
+                && $0.filter(\.isLetter).count >= 3
+                && $0.contains(where: \.isNumber)
         }
     }
 
@@ -226,8 +219,10 @@ struct ResearchPipeline: Sendable {
 
     private func significantTokens(_ value: String) -> Set<String> {
         let stopwords: Set<String> = [
-            "a", "ai", "an", "and", "at", "first", "for", "in", "is", "it", "look",
-            "model", "new", "of", "on", "the", "to", "with"
+            "a", "ai", "an", "and", "announcement", "announces", "at", "first", "for", "in",
+            "introducing", "is", "it", "launch", "launched", "launches", "look", "model", "new",
+            "news", "notes", "of", "on", "patch", "platform", "release", "releases", "the", "to",
+            "update", "updates", "with"
         ]
         let folded = value.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en"))
         let rawTokens = folded.components(separatedBy: CharacterSet.alphanumerics.inverted)
@@ -235,13 +230,32 @@ struct ResearchPipeline: Sendable {
             .filter { !$0.isEmpty }
         let splitTokens = rawTokens
             .map(normalizedKey)
-            .filter { $0.count >= 2 && !stopwords.contains($0) }
-        let joinedIdentifiers = zip(rawTokens, rawTokens.dropFirst())
-            .map(+)
             .filter {
-                $0.count >= 3 && $0.count <= 20 &&
-                    $0.contains(where: \.isLetter) && $0.contains(where: \.isNumber)
+                $0.count >= 2 &&
+                    !$0.allSatisfy(\.isNumber) &&
+                    !stopwords.contains($0)
             }
+        var joinedIdentifiers: [String] = []
+        for index in rawTokens.indices {
+            let prefix = rawTokens[index]
+            guard !stopwords.contains(prefix), prefix.contains(where: \.isLetter) else {
+                continue
+            }
+
+            var joined = prefix
+            var cursor = rawTokens.index(after: index)
+            while cursor < rawTokens.endIndex, rawTokens[cursor].allSatisfy(\.isNumber) {
+                joined += rawTokens[cursor]
+                cursor = rawTokens.index(after: cursor)
+            }
+
+            guard cursor > rawTokens.index(after: index),
+                  joined.count >= 3, joined.count <= 20,
+                  joined.contains(where: \.isNumber) else {
+                continue
+            }
+            joinedIdentifiers.append(joined)
+        }
         let compactTokens = folded.components(separatedBy: .whitespacesAndNewlines)
             .map(normalizedKey)
             .filter { $0.count >= 2 && $0.count <= 40 && !stopwords.contains($0) }

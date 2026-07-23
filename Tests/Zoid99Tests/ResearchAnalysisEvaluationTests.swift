@@ -18,6 +18,70 @@ final class ResearchAnalysisEvaluationTests: XCTestCase {
         XCTAssertEqual(output.opportunities[0].originalSource?.externalID, "origin")
     }
 
+    func testGenericReleaseWordsDoNotMergeDistinctDevelopments() {
+        let items = [
+            item(.official, "alpha", "Alpha platform release notes", "Alpha shipped its own update.", "Alpha", -2, "en", "US", "unclustered-alpha", true, 1, 10, .confirmed),
+            item(.official, "beta", "Beta platform release notes", "Beta shipped a different update.", "Beta", -1, "en", "US", "unclustered-beta", true, 1, 10, .confirmed)
+        ]
+
+        let output = ResearchPipeline().run(items: items, now: now)
+
+        XCTAssertEqual(output.opportunities.count, 2)
+        XCTAssertEqual(Set(output.opportunities.map(\.topicKey)), ["unclustered-alpha", "unclustered-beta"])
+    }
+
+    func testDifferentSemanticVersionsRemainSeparateDevelopments() {
+        let items = [
+            item(.official, "v5.4.0", "Release v5.4.0", "Version 5.4.0 release notes.", "Hugging Face", -2, "en", "US", "unclustered-v540", true, 1, 10, .confirmed),
+            item(.official, "v5.5.0", "Release v5.5.0", "Version 5.5.0 release notes.", "Hugging Face", -1, "en", "US", "unclustered-v550", true, 1, 10, .confirmed)
+        ]
+
+        let output = ResearchPipeline().run(items: items, now: now)
+
+        XCTAssertEqual(output.opportunities.count, 2)
+        XCTAssertEqual(Set(output.opportunities.map(\.topicKey)), ["unclustered-v540", "unclustered-v550"])
+    }
+
+    func testDifferentPatchVersionsRemainSeparateDevelopments() {
+        let items = [
+            item(.official, "v5.10.1", "Release v5.10.1", "Version 5.10.1 release notes.", "Hugging Face", -2, "en", "US", "unclustered-v5101", true, 1, 10, .confirmed),
+            item(.official, "v5.10.2", "Patch release v5.10.2", "Version 5.10.2 release notes.", "Hugging Face", -1, "en", "US", "unclustered-v5102", true, 1, 10, .confirmed)
+        ]
+
+        let output = ResearchPipeline().run(items: items, now: now)
+
+        XCTAssertEqual(output.opportunities.count, 2)
+        XCTAssertEqual(Set(output.opportunities.map(\.topicKey)), ["unclustered-v5101", "unclustered-v5102"])
+    }
+
+    func testDifferentModelMinorVersionsRemainSeparateDevelopments() {
+        let items = [
+            item(.official, "gpt-5.6", "GPT-5.6: Frontier intelligence", "GPT-5.6 announcement.", "OpenAI", -3, "en", "US", "unclustered-gpt56", true, 1, 10, .confirmed),
+            item(.youtube, "gpt-5-6", "GPT 5 6 first look", "A GPT-5.6 first look.", "Creator", -2, "en", "US", "unclustered-gpt56-video", false, 0.8, 100, .confirmed),
+            item(.official, "gpt-5.5", "GPT-5.5 Bio Bug Bounty", "A GPT-5.5 security program.", "OpenAI", -1, "en", "US", "unclustered-gpt55", true, 1, 10, .confirmed)
+        ]
+
+        let output = ResearchPipeline().run(items: items, now: now)
+
+        XCTAssertEqual(output.opportunities.count, 2)
+        XCTAssertTrue(output.opportunities.contains { $0.items.map(\.externalID).sorted() == ["gpt-5-6", "gpt-5.6"] })
+        XCTAssertTrue(output.opportunities.contains { $0.items.map(\.externalID) == ["gpt-5.5"] })
+    }
+
+    func testBridgeItemCannotTransitivelyMergeUnrelatedDevelopments() {
+        let items = [
+            item(.official, "orion", "Acme Orion launch", "The Orion development.", "Acme", -3, "en", "US", "unclustered-orion", true, 1, 10, .confirmed),
+            item(.youtube, "bridge", "Acme Orion meets Beta Nova", "A comparison of two developments.", "Creator", -2, "en", "US", "unclustered-comparison", false, 0.7, 100, .unverified),
+            item(.official, "nova", "Beta Nova launch", "The separate Nova development.", "Beta", -1, "en", "US", "unclustered-nova", true, 1, 10, .confirmed)
+        ]
+
+        let output = ResearchPipeline().run(items: items, now: now)
+
+        XCTAssertEqual(output.opportunities.count, 2)
+        XCTAssertTrue(output.opportunities.contains { $0.items.map(\.externalID).sorted() == ["bridge", "orion"] })
+        XCTAssertTrue(output.opportunities.contains { $0.items.map(\.externalID) == ["nova"] })
+    }
+
     func testUnverifiedClaimsCannotBecomeConfirmedWithoutCredibleOriginalEvidence() {
         let items = [
             item(.x, "rumor-1", "Company X secretly released Model Z", "Anonymous launch claim.", "Anonymous", -2, "en", "US", "model-z", true, 0.95, 50_000, .confirmed),
