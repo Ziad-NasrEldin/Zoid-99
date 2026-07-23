@@ -13,20 +13,41 @@ const watchlistSchema = z.object({
 
 export function buildApi(options: {
   repository: ResearchRepository;
+  authenticationKeys?: string[];
+  serviceVersion?: string;
   apiToken: string;
   logger?: boolean | { level: string };
 }): FastifyInstance {
+  const serviceMetadata = {
+    service: "zoid99-backend",
+    version: options.serviceVersion ?? process.env.SERVICE_VERSION ?? "development",
+  };
   const app = Fastify({
-    logger: options.logger ?? false,
+    logger: options.logger === false || options.logger === undefined ? false : {
+      ...(typeof options.logger === "object" ? options.logger : {}),
+      redact: {
+        paths: [
+          "req.headers.authorization",
+          "req.headers.cookie",
+          "request.headers.authorization",
+          "headers.authorization",
+          "body.secret",
+          "body.access_token",
+          "body.refresh_token",
+          "*.encryptedValue",
+        ],
+        censor: "[REDACTED]",
+      },
+    },
     bodyLimit: 64 * 1024,
     requestTimeout: 10_000,
   });
 
-  app.get("/health", async () => ({ status: "ok" }));
+  app.get("/health", async () => ({ status: "ok", ...serviceMetadata }));
   app.get("/ready", async (_request, reply) => {
     try {
       await options.repository.ping();
-      return { status: "ready" };
+      return { status: "ready", ...serviceMetadata };
     } catch {
       return reply.code(503).send({ error: "service_unavailable", message: "Database is unavailable" });
     }
@@ -34,7 +55,8 @@ export function buildApi(options: {
 
   app.addHook("onRequest", async (request, reply) => {
     if (request.url === "/health" || request.url === "/ready") return;
-    if (!isAuthorized(request.headers.authorization, options.apiToken)) {
+    const authenticationKeys = options.authenticationKeys ?? [options.apiToken];
+    if (!authenticationKeys.some((key) => isAuthorized(request.headers.authorization, key))) {
       return reply.code(401).send({ error: "unauthorized", message: "A valid bearer token is required" });
     }
   });
@@ -93,7 +115,12 @@ export function buildApi(options: {
     if (typeof error === "object" && error !== null && "code" in error && error.code === "23505") {
       return reply.code(409).send({ error: "conflict", message: "The record already exists" });
     }
-    app.log.error({ err: error }, "Unhandled request error");
+    app.log.error({
+      errorType: error instanceof Error ? error.name : "UnknownError",
+      errorCode: typeof error === "object" && error !== null && "code" in error
+        ? String(error.code)
+        : undefined,
+    }, "Unhandled request error");
     return reply.code(500).send({ error: "internal_error", message: "The request could not be completed" });
   });
   return app;

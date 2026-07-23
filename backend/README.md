@@ -1,6 +1,6 @@
 # Zoid 99 backend
 
-This service is the always-on data and API foundation for the single-user macOS application.
+This service is the deployment-ready data and API foundation for the single-user macOS application.
 It stores normalized research records, source health, opportunities, watchlists, notifications, and encrypted connector configuration.
 It intentionally does not collect from external sources.
 
@@ -54,8 +54,10 @@ Database-only fields and encrypted values are never returned.
 
 ## Production notes
 
+Build and run the non-root multi-stage image in `Dockerfile`.
+Use `compose.production.yml` as a provider-neutral release contract, not as authorization to deploy.
+Validate production environment variables with `npm run config:validate` before migrations or startup.
 Run migrations once before starting a new application version.
-Use a managed PostgreSQL service with encrypted backups and TLS.
-Store the API token, database URL, and encryption key in the deployment platform's secret manager.
-Rotate the API token by updating the service and macOS Keychain together.
-Rotating the encryption key requires decrypting and re-encrypting stored configuration in a controlled maintenance operation.
+Use a managed PostgreSQL 17 service with encrypted backups, point-in-time recovery, and required TLS.
+Store the API credential, database URL, and encryption key in the deployment platform's secret manager.
+See `ops/README.md` for backup, restore, monitoring, rotation, deployment, and rollback procedures.

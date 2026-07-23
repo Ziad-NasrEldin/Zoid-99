@@ -20,8 +20,8 @@ swift test
 ## Always-on backend
 
 The production data and API foundation lives in `backend/`.
-It provides PostgreSQL migrations, authenticated macOS-facing API contracts, encrypted connector configuration storage, and deterministic local setup.
-It does not include source connectors.
+It provides PostgreSQL migrations, authenticated macOS-facing API contracts, encrypted connector configuration storage, server-side collection of the verified credential-free official catalog, a non-overlapping scheduler, a hardened container, and executable operations workflows.
+Credentialed provider collectors remain separate work and are not presented as live.
 See `backend/README.md` for environment variables and startup instructions.
 
 ## Live integration status
