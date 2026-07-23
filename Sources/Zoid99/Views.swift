@@ -422,33 +422,37 @@ struct NotificationsView: View {
             }
             Divider().overlay(SumiColor.ink)
             List(store.notifications) { record in
-                HStack(alignment: .top, spacing: 14) {
-                    StateLabel(text: record.delivery.rawValue, urgent: record.delivery == .immediate)
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(record.title).font(SumiFont.body(15))
-                        HStack {
-                            StateLabel(
-                                text: record.deliveryState.rawValue,
-                                urgent: record.deliveryState == .failed
-                            )
-                            Text(record.statusDetail)
-                            if let scheduledAt = record.scheduledAt {
-                                Text("·")
-                                Text(scheduledAt, style: .relative)
+                Button {
+                    store.openNotificationDeepLink(
+                        URL(string: "zoid99://opportunity/\(record.opportunityID.uuidString)")!
+                    )
+                } label: {
+                    HStack(alignment: .top, spacing: 14) {
+                        StateLabel(text: record.delivery.rawValue, urgent: record.delivery == .immediate)
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(record.title).font(SumiFont.body(15))
+                            HStack {
+                                StateLabel(
+                                    text: record.deliveryState.rawValue,
+                                    urgent: record.deliveryState == .failed
+                                )
+                                Text(record.statusDetail)
+                                if let scheduledAt = record.scheduledAt {
+                                    Text("·")
+                                    Text(scheduledAt, style: .relative)
+                                }
                             }
+                                .font(SumiFont.meta(9))
+                                .foregroundStyle(SumiColor.mutedInk)
                         }
+                        Spacer()
+                        Text(record.isRead ? "Opened" : "Open detail")
                             .font(SumiFont.meta(9))
-                            .foregroundStyle(SumiColor.mutedInk)
                     }
-                    Spacer()
-                    Button(record.isRead ? "Opened" : "Open detail") {
-                        store.openNotificationDeepLink(
-                            URL(string: "zoid99://opportunity/\(record.opportunityID.uuidString)")!
-                        )
-                    }
-                    .buttonStyle(SumiButtonStyle())
-                    .disabled(record.isRead)
                 }
+                .buttonStyle(.plain)
+                .disabled(record.isRead)
+                .accessibilityHint("Open notification opportunity detail")
                 .padding(.vertical, 7)
             }
             .listStyle(.plain)

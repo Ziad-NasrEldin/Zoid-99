@@ -19,6 +19,7 @@ plutil -lint "$plist"
 [[ $(/usr/libexec/PlistBuddy -c "Print :CFBundleName" "$plist") == "Zoid 99" ]]
 [[ $(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$plist") == "Zoid99" ]]
 [[ $(/usr/libexec/PlistBuddy -c "Print :LSMinimumSystemVersion" "$plist") == "14.0" ]]
+[[ $(/usr/libexec/PlistBuddy -c "Print :CFBundleURLTypes:0:CFBundleURLSchemes:0" "$plist") == "zoid99" ]]
 lipo "$executable" -verify_arch arm64 x86_64
 
 file "$executable"

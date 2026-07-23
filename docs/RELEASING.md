@@ -8,6 +8,7 @@ The release scripts do not store Apple credentials, certificate material, or not
 - Product name: `Zoid 99`
 - Executable: `Zoid99`
 - Bundle identifier: `com.ziadnasreldin.zoid99`
+- Opportunity deep-link scheme: `zoid99://`
 - Minimum macOS version: 14.0
 - Category: Productivity
 - Icon source: `Resources/AppIcon.svg`

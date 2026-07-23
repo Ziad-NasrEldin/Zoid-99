@@ -132,17 +132,17 @@ final class AppStore: ObservableObject {
 
         let previousHealth = Dictionary(uniqueKeysWithValues: sourceHealth.map { ($0.group, $0) })
         let resultByGroup = Dictionary(uniqueKeysWithValues: results.map { ($0.group, $0) })
-        sourceHealth = SourceGroup.allCases.compactMap { group in
+        sourceHealth = SourceGroup.allCases.compactMap { group -> SourceHealth? in
             guard let result = resultByGroup[group] else { return previousHealth[group] }
             let previous = previousHealth[group]
-            let retainedEvidence = previous.flatMap {
-                result.items.isEmpty && !$0.evidence.isEmpty ? " Last known evidence: \($0.evidence)" : nil
+            let previousEvidenceSuffix = previous.flatMap {
+                result.items.isEmpty ? retainedEvidence(from: $0.evidence, current: result.evidence) : nil
             } ?? ""
             return SourceHealth(
                 group: group,
                 state: result.state,
                 lastActivity: result.items.map(\.collectedAt).max() ?? previous?.lastActivity,
-                evidence: result.evidence + retainedEvidence,
+                evidence: result.evidence + previousEvidenceSuffix,
                 repairAction: repairAction(for: result.state),
                 dataTruth: result.dataTruth
             )
@@ -492,6 +492,14 @@ final class AppStore: ObservableObject {
         if truths.contains(.delayed) { return .delayed }
         if truths.contains(.unavailable) { return .unavailable }
         return .missing
+    }
+
+    private func retainedEvidence(from previous: String, current: String) -> String? {
+        let marker = " Last known evidence: "
+        let evidence = previous.range(of: marker, options: .backwards)
+            .map { String(previous[$0.upperBound...]) } ?? previous
+        guard !evidence.isEmpty, evidence != current else { return nil }
+        return marker + evidence
     }
 
     private func sourceOrder(_ group: SourceGroup) -> Int {

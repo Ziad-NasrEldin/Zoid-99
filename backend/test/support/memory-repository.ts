@@ -109,6 +109,9 @@ export class MemoryRepository implements ResearchRepository {
       originalSource,
       items,
       ...batch.opportunity,
+      disposition: existing?.disposition ?? batch.opportunity.disposition,
+      dispositionUpdatedAt: existing?.dispositionUpdatedAt ?? items[0]!.collectedAt,
+      dispositionMutationID: existing?.dispositionMutationID ?? null,
       isHighPriority: Object.values(batch.opportunity.score).reduce((sum, value) => sum + value, 0) >= 75
         && batch.verification === "Confirmed",
     };

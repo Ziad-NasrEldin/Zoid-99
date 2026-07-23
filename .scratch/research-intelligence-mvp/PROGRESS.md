@@ -13,7 +13,7 @@ Provider credentials must use macOS Keychain or encrypted server configuration a
 
 ## Evidence standard
 
-`integrated` means the implementation is present in the authoritative combined baseline branch created from `main` at `5aba082`.
+`integrated` means the implementation is present in the production integration branch created from baseline `79503ff`.
 `active` means implementation is still underway in a named task thread.
 `remaining` means no complete implementation commit was found.
 Tests prove deterministic behavior, not live provider functionality.
@@ -34,6 +34,11 @@ YouTube, Google Trends, X, Instagram, and live AI analysis remain unproved with 
 | X connector | integrated | Original `958082e`, baseline `52b6133`; credential-gated |
 | Instagram connector | integrated | Original `2088071`, baseline `f289edf`; credential-gated |
 | Progress ledger | integrated | Original `84f3121`, baseline `a304c32`; reconciled after combined validation |
+| Opportunity disposition persistence | integrated | Original `96a44b7`, integration `453c005`; Swift and fresh-PostgreSQL reconciliation tests pass |
+| External provider connections and repair | integrated | Original `c4b0f4d`, integration `cd21a81`; native repair proof and secure-boundary tests pass, with no credentialed provider claimed live |
+| Native notification delivery | integrated | Original `4e368fe`, integration `f933f6a`; settings, history, and packaged deep-link proof pass, while macOS permission acceptance remains |
+| Always-on backend operations | integrated | Original `70806c5`, integration `6116f85`; scheduler, monitoring, secret rotation, and production configuration are deterministic-tested, while hosted Mac-sleep proof remains |
+| macOS release packaging | integrated | Originals `652157a` and `deaa475`, integrations `3a65154` and `2c3e987`; universal unsigned bundle identity, centered icon, metadata, archive, and deep-link registration are verified |
 
 No named implementation task remains active as of this update.
 
@@ -64,14 +69,14 @@ No named implementation task remains active as of this update.
 | 21. Show a chronological Live Radar | integrated | Radar is integrated; complete live multi-source data still depends on provider credentials. |
 | 22. Filter Radar by source, topic, country, language, freshness, and verification | remaining | No complete filter implementation commit found; see issue 003. |
 | 23. Research a topic across connected sources | remaining | Topic surface exists, but complete cross-source query behavior was not evidenced; see issue 003. |
-| 24. Save, watch, dismiss, or mute an Opportunity | integrated | Local durable dispositions are on main in `5aba082`; backend persistence remains in issue 005. |
+| 24. Save, watch, dismiss, or mute an Opportunity | integrated | Backend persistence, offline reconciliation, restart behavior, and Today/Radar projection are integrated and verified on fresh PostgreSQL. |
 | 25. Manage monitoring watchlists | remaining | Local watchlist foundations exist on main, but the full editable set and provider wiring are incomplete; see issue 004. |
-| 26. Send immediate high-priority alerts | integrated | Deterministic notification selection is integrated; native delivery, permission, and deep-link proof remain. |
-| 27. Group lower-priority developments into digests | integrated | Deterministic digest decisions are integrated; scheduling and native delivery remain. |
-| 28. Show source-connection health | integrated | Real backend synchronization truth reaches the native shell; repair workflows remain. |
-| 29. Configure notification and refresh preferences | remaining | Basic refresh storage is on main, but quiet hours, urgency, and complete notification preferences are not implemented. |
-| 30. Monitor while the Mac sleeps | remaining | `200f5ee` explicitly runs only while the app is open; always-on hosting is unresolved. |
-| 31. Store credentials securely | remaining | Connector contracts document Keychain/encrypted-server boundaries, but production secret storage and rotation are not complete. |
+| 26. Send immediate high-priority alerts | integrated | Native scheduling, durable deduplication, quiet-hour deferral, and exact-opportunity deep links are integrated; macOS permission acceptance remains a live gate. |
+| 27. Group lower-priority developments into digests | integrated | Grouped scheduling and durable per-opportunity history are integrated; macOS permission acceptance remains a live gate. |
+| 28. Show source-connection health | integrated | The native ledger now composes real sync truth with written provider state, retained evidence, and one repair action; credentialed provider proof remains. |
+| 29. Configure notification and refresh preferences | integrated | Persisted opt-in, permission truth, quiet hours, digest time, and refresh preferences are integrated and native-proofed. |
+| 30. Monitor while the Mac sleeps | remaining | The server scheduler and operations package are integrated, but no production host or Mac-off collection proof has been authorized. |
+| 31. Store credentials securely | integrated | Keychain and encrypted-server boundaries, validation-before-storage, removal, redacted logs, and encryption-key rotation are deterministic-tested; no live provider credential is claimed. |
 | 32. Retain source links in every Research Brief | integrated | Citation enforcement and evaluation coverage are integrated with retained source links. |
 | 33. Use a calm ledger interface | integrated | Main SwiftUI shell implements the Sumi-Ink ledger direction at `5aba082`; final visual acceptance remains human-reviewed. |
 | 34. Pair important states with written labels | integrated | Main includes written state labels and deterministic coverage at `5aba082`. |
@@ -82,6 +87,6 @@ No named implementation task remains active as of this update.
 
 ## Next sequence
 
-1. Complete provider-only connection UI and editable monitoring controls through issues 002 to 004.
-2. Complete persistence, repair, notifications, hosting, security, accessibility, and release work through issues 005 to 011.
+1. Complete Radar/topic research, editable monitoring controls, accessibility, RTL, and Reduce Motion acceptance through issues 003, 004, and 010.
+2. Complete credentialed provider checks, macOS notification permission acceptance, hosted Mac-sleep proof, Developer ID signing, and notarization through issues 002, 006, 007, 008, 009, and 011.
 3. Run the credentialed multi-day pilot in issue 012 before calling the MVP live.

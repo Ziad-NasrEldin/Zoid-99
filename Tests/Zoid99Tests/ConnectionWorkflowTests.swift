@@ -96,11 +96,13 @@ final class ConnectionWorkflowTests: XCTestCase {
         let store = AppStore(persistence: persistence, sync: sync)
 
         await store.refresh()
+        await store.refresh()
 
         let repaired = try! XCTUnwrap(store.sourceHealth.first { $0.group == .official })
         XCTAssertEqual(repaired.lastActivity, original.lastActivity)
         XCTAssertTrue(repaired.evidence.contains("The endpoint returned 503."))
         XCTAssertTrue(repaired.evidence.contains("Last known evidence:"))
+        XCTAssertEqual(repaired.evidence.components(separatedBy: "Last known evidence:").count - 1, 1)
         XCTAssertEqual(store.sourceHealth.count, SourceGroup.allCases.count)
     }
 

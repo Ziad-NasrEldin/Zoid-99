@@ -12,6 +12,17 @@
     <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
     <string>com.ziadnasreldin.zoid99</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>com.ziadnasreldin.zoid99.opportunity</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>zoid99</string>
+            </array>
+        </dict>
+    </array>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
