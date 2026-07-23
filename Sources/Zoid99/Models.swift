@@ -76,6 +76,24 @@ struct ScoreBreakdown: Codable, Hashable, Sendable {
     }
 }
 
+struct BriefCitation: Codable, Hashable, Sendable {
+    let sourceID: String
+    let title: String
+    let url: URL
+    let publishedAt: Date
+}
+
+struct ResearchBrief: Codable, Hashable, Sendable {
+    let summary: String
+    let originStatement: String
+    let citations: [BriefCitation]
+}
+
+struct RegionalEvidence: Codable, Hashable, Sendable {
+    let countryCode: String
+    let sourceCount: Int
+}
+
 struct Opportunity: Identifiable, Codable, Hashable, Sendable {
     let id: UUID
     let topicKey: String
@@ -90,7 +108,44 @@ struct Opportunity: Identifiable, Codable, Hashable, Sendable {
     let coverageExplanation: String
     var disposition: OpportunityDisposition
 
-    var isHighPriority: Bool { score.total >= 75 && verification == .confirmed }
+    var isHighPriority: Bool {
+        score.total >= 75 && score.freshness >= 14 && verification == .confirmed
+    }
+    var researchBrief: ResearchBrief {
+        let sortedItems = items.sorted {
+            if $0.publishedAt == $1.publishedAt { return $0.externalID < $1.externalID }
+            return $0.publishedAt < $1.publishedAt
+        }
+        let citations = sortedItems.enumerated().map { _, item in
+            BriefCitation(
+                sourceID: "\(item.group.rawValue):\(item.externalID)",
+                title: item.title,
+                url: item.url,
+                publishedAt: item.publishedAt
+            )
+        }
+        return ResearchBrief(
+            summary: citations.isEmpty ? brief : "\(brief) [1]",
+            originStatement: originalSource.map {
+                "Earliest credible source: \($0.author), \($0.publishedAt.formatted(.iso8601))."
+            } ?? "Earliest credible source is unknown.",
+            citations: citations
+        )
+    }
+    var regionalEvidence: [RegionalEvidence] {
+        let supported = Set(["EG", "SA", "AE", "OM"])
+        return Dictionary(grouping: items.filter { supported.contains($0.country.uppercased()) }) {
+            $0.country.uppercased()
+        }
+        .map { RegionalEvidence(countryCode: $0.key, sourceCount: $0.value.count) }
+        .sorted { $0.countryCode < $1.countryCode }
+    }
+    var momentumEvidence: String {
+        let latest = items.map(\.publishedAt).max() ?? earliestPublishedAt
+        let recent = items.filter { latest.timeIntervalSince($0.publishedAt) <= 6 * 3_600 }.count
+        let earlier = items.count - recent
+        return "\(recent) recent signals versus \(earlier) earlier signals."
+    }
     var dataTruth: DataTruth {
         if items.contains(where: { $0.dataTruth == .live }) { return .live }
         if items.contains(where: { $0.dataTruth == .cached }) { return .cached }
@@ -222,6 +277,8 @@ struct ResearchOutput: Sendable {
     let opportunities: [Opportunity]
     let comments: [CommentCluster]
     let notifications: [NotificationRecord]
+    var aiStatus: AIAnalysisStatus = .notRequested
+    var aiInterpretations: [AIClusterInterpretation] = []
 }
 
 enum AppDestination: String, CaseIterable, Identifiable {
