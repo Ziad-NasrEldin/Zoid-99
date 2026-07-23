@@ -27,4 +27,5 @@ export interface ResearchRepository {
 export interface EncryptedConfigStore {
   set(key: string, encryptedValue: string): Promise<void>;
   get(key: string): Promise<string | null>;
+  remove(key: string): Promise<void>;
 }

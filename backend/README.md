@@ -40,6 +40,11 @@ The first version has one user and no public registration or session endpoint.
 
 - `GET /v1/bootstrap`
 - `GET /v1/sources/health`
+- `GET /v1/connections`
+- `GET /v1/connections/:provider`
+- `PUT /v1/connections/:provider`
+- `POST /v1/connections/:provider/validate`
+- `DELETE /v1/connections/:provider`
 - `GET /v1/opportunities`
 - `GET /v1/opportunities/:id`
 - `PATCH /v1/opportunities/:id/disposition`
@@ -51,6 +56,16 @@ The first version has one user and no public registration or session endpoint.
 
 Response fields and written enum values match the existing Swift models.
 Database-only fields and encrypted values are never returned.
+
+## Server-managed provider connections
+
+The server connection contract supports `google-trends` and `ai-provider`.
+`PUT /v1/connections/:provider` is an operator setup endpoint and accepts a credential only over the authenticated API.
+The credential is persisted only after the injected provider validator confirms access.
+Responses include written state, last activity, evidence, repair action, and retry time, but never include submitted, encrypted, or decrypted credentials.
+The default runtime validator performs no network access and reports unavailable.
+Completed connector integrations must inject their provider-specific validator and keep live checks behind an explicit opt-in environment flag.
+Deleting a connection removes its encrypted credential while retaining the last known activity in the returned repair evidence.
 
 ## Production notes
 

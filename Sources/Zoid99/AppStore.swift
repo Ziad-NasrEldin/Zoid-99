@@ -10,6 +10,7 @@ final class AppStore: ObservableObject {
     @Published var notifications: [NotificationRecord] = []
     @Published var sourceHealth: [SourceHealth] = []
     @Published var sourceHealthHistory: [SourceHealthRecord] = []
+    @Published var providerConnections: [ProviderConnection] = []
     @Published var watchlist: [WatchlistEntry] = []
     @Published var radarSource: SourceGroup?
     @Published var radarVerification: VerificationState?
@@ -27,14 +28,17 @@ final class AppStore: ObservableObject {
     private let pipeline = ResearchPipeline()
     private let persistence: any ResearchPersistence
     private let sync: any ResearchSyncing
+    private let connectionService: any ProviderConnectionServicing
 
     init(
         persistence: any ResearchPersistence = JSONResearchPersistence.production(),
         sync: any ResearchSyncing = NoopResearchSync(),
+        connectionService: any ProviderConnectionServicing = LocalProviderConnectionService(),
         loadDemoDataWhenEmpty: Bool = true
     ) {
         self.persistence = persistence
         self.sync = sync
+        self.connectionService = connectionService
         do {
             if let stored = try persistence.load() {
                 applyStoredState(stored)
@@ -95,16 +99,23 @@ final class AppStore: ObservableObject {
         }
 
         let previousHealth = Dictionary(uniqueKeysWithValues: sourceHealth.map { ($0.group, $0) })
-        sourceHealth = results.map {
-            SourceHealth(
-                group: $0.group,
-                state: $0.state,
-                lastActivity: $0.items.map(\.collectedAt).max() ?? previousHealth[$0.group]?.lastActivity,
-                evidence: $0.evidence,
-                repairAction: $0.state == .connected ? "Review" : "Configure",
-                dataTruth: $0.dataTruth
+        let resultByGroup = Dictionary(uniqueKeysWithValues: results.map { ($0.group, $0) })
+        sourceHealth = SourceGroup.allCases.compactMap { group in
+            guard let result = resultByGroup[group] else { return previousHealth[group] }
+            let previous = previousHealth[group]
+            let retainedEvidence = previous.flatMap {
+                result.items.isEmpty && !$0.evidence.isEmpty ? " Last known evidence: \($0.evidence)" : nil
+            } ?? ""
+            return SourceHealth(
+                group: group,
+                state: result.state,
+                lastActivity: result.items.map(\.collectedAt).max() ?? previous?.lastActivity,
+                evidence: result.evidence + retainedEvidence,
+                repairAction: repairAction(for: result.state),
+                dataTruth: result.dataTruth
             )
-        }.sorted { sourceOrder($0.group) < sourceOrder($1.group) }
+        }
+        updateProviderConnectionsFromSourceHealth()
         recordSourceHealth(results)
         dataTruth = liveItems.isEmpty
             ? aggregateTruth(sourceItems.map(\.dataTruth))
@@ -156,6 +167,24 @@ final class AppStore: ObservableObject {
         persistReportingFailure()
     }
 
+    func validateConnection(_ provider: ExternalProvider) async {
+        setProviderState(provider, state: .validating, evidence: "Checking provider access without displaying credentials.")
+        let result = await connectionService.validate(provider)
+        apply(result, to: provider)
+    }
+
+    func connect(_ provider: ExternalProvider, credential: String?) async {
+        setProviderState(provider, state: .validating, evidence: "Saving authorization and checking its boundary.")
+        let result = await connectionService.connect(provider, credential: credential)
+        apply(result, to: provider)
+    }
+
+    func disconnect(_ provider: ExternalProvider) async {
+        setProviderState(provider, state: .validating, evidence: "Removing local authorization. Collected evidence will be retained.")
+        let result = await connectionService.disconnect(provider)
+        apply(result, to: provider)
+    }
+
     func requestNotifications() async {
         settings.notificationPermissionRequested = true
         persistReportingFailure()
@@ -204,6 +233,7 @@ final class AppStore: ObservableObject {
                 dataTruth: .fixture
             )
         }
+        providerConnections = defaultProviderConnections()
         dataTruth = .fixture
     }
 
@@ -236,6 +266,8 @@ final class AppStore: ObservableObject {
             if health.dataTruth == .live { health.dataTruth = .cached }
             return health
         }
+        providerConnections = defaultProviderConnections()
+        updateProviderConnectionsFromSourceHealth()
         sourceHealthHistory = stored.sourceHealthHistory
         watchlist = stored.watchlist
         settings = stored.settings
@@ -282,6 +314,106 @@ final class AppStore: ObservableObject {
 
     private func sourceOrder(_ group: SourceGroup) -> Int {
         SourceGroup.allCases.firstIndex(of: group) ?? SourceGroup.allCases.count
+    }
+
+    private func defaultProviderConnections() -> [ProviderConnection] {
+        ProviderDefinition.catalog.map {
+            ProviderConnection(
+                provider: $0.provider,
+                state: .setupRequired,
+                lastActivity: nil,
+                evidence: $0.credentialBoundary == .none
+                    ? "Public endpoint validation has not run."
+                    : "Authorization has not been validated.",
+                repairAction: $0.credentialBoundary == .serverSecret ? "Server setup" : "Configure",
+                retryAt: nil
+            )
+        }
+    }
+
+    private func updateProviderConnectionsFromSourceHealth() {
+        if providerConnections.isEmpty { providerConnections = defaultProviderConnections() }
+        for health in sourceHealth {
+            guard let provider = ExternalProvider.allCases.first(where: { $0.sourceGroup == health.group }),
+                  let index = providerConnections.firstIndex(where: { $0.provider == provider }) else { continue }
+            providerConnections[index].state = providerState(for: health)
+            providerConnections[index].lastActivity = health.lastActivity
+            providerConnections[index].evidence = health.evidence
+            providerConnections[index].repairAction = health.repairAction
+        }
+    }
+
+    private func providerState(for health: SourceHealth) -> ProviderConnectionState {
+        if health.dataTruth == .cached { return .cached }
+        switch health.state {
+        case .connected: return .connected
+        case .setupRequired: return .setupRequired
+        case .disconnected: return .disconnected
+        case .unavailable: return .unavailable
+        case .rateLimited: return .rateLimited
+        case .delayed: return .delayed
+        case .cached: return .cached
+        case .unsupported: return .unsupported
+        }
+    }
+
+    private func apply(_ result: ProviderValidationResult, to provider: ExternalProvider) {
+        guard let index = providerConnections.firstIndex(where: { $0.provider == provider }) else { return }
+        let previous = providerConnections[index]
+        providerConnections[index].state = result.state
+        providerConnections[index].lastActivity = result.state == .connected ? result.checkedAt : previous.lastActivity
+        providerConnections[index].evidence = result.evidence
+        providerConnections[index].repairAction = repairAction(for: result.state)
+        providerConnections[index].retryAt = result.retryAt
+        statusMessage = "\(provider.rawValue): \(result.state.rawValue)"
+        if let group = provider.sourceGroup,
+           let healthIndex = sourceHealth.firstIndex(where: { $0.group == group }) {
+            sourceHealth[healthIndex].state = connectionState(for: result.state)
+            sourceHealth[healthIndex].lastActivity = providerConnections[index].lastActivity
+            sourceHealth[healthIndex].evidence = result.evidence
+            sourceHealth[healthIndex].repairAction = providerConnections[index].repairAction
+        }
+        persistReportingFailure()
+    }
+
+    private func setProviderState(_ provider: ExternalProvider, state: ProviderConnectionState, evidence: String) {
+        guard let index = providerConnections.firstIndex(where: { $0.provider == provider }) else { return }
+        providerConnections[index].state = state
+        providerConnections[index].evidence = evidence
+    }
+
+    private func repairAction(for state: ProviderConnectionState) -> String {
+        switch state {
+        case .connected: "Review"
+        case .setupRequired, .disconnected: "Configure"
+        case .rateLimited: "Retry later"
+        case .cached, .delayed, .unavailable: "Validate again"
+        case .unsupported: "Review support"
+        case .validating: "Validating"
+        }
+    }
+
+    private func repairAction(for state: ConnectionState) -> String {
+        switch state {
+        case .connected: "Review"
+        case .setupRequired, .disconnected: "Configure"
+        case .rateLimited: "Retry later"
+        case .cached, .delayed, .unavailable: "Validate again"
+        case .unsupported: "Review support"
+        }
+    }
+
+    private func connectionState(for state: ProviderConnectionState) -> ConnectionState {
+        switch state {
+        case .connected: .connected
+        case .setupRequired, .validating: .setupRequired
+        case .disconnected: .disconnected
+        case .unavailable: .unavailable
+        case .delayed: .delayed
+        case .rateLimited: .rateLimited
+        case .cached: .cached
+        case .unsupported: .unsupported
+        }
     }
 
     private func markingLiveAsCached(_ item: SourceItem) -> SourceItem {
