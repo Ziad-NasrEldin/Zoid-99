@@ -1,11 +1,105 @@
 import SwiftUI
+import AppKit
 import UserNotifications
+
+@MainActor
+enum MainWindowFramePersistence {
+    static let autosaveName = "Zoid99.MainWindow"
+    static let frameDefaultsKey = "Zoid99.MainWindowFrame"
+
+    @discardableResult
+    static func configure(_ window: NSWindow) -> Bool {
+        guard window.frameAutosaveName != autosaveName else { return true }
+        window.setFrameAutosaveName("")
+        return window.setFrameAutosaveName(autosaveName)
+    }
+
+    @discardableResult
+    static func restore(_ window: NSWindow) -> Bool {
+        if let values = UserDefaults.standard.array(forKey: frameDefaultsKey) as? [Double],
+           values.count == 4 {
+            let frame = NSRect(x: values[0], y: values[1], width: values[2], height: values[3])
+            let isUsable = frame.width > 0
+                && frame.height > 0
+                && [frame.minX, frame.minY, frame.width, frame.height].allSatisfy(\.isFinite)
+                && NSScreen.screens.contains { $0.visibleFrame.intersects(frame) }
+            if isUsable {
+                window.setFrame(frame, display: false)
+                return true
+            }
+        }
+        return window.setFrameUsingName(autosaveName)
+    }
+
+    static func save(_ window: NSWindow) {
+        window.saveFrame(usingName: autosaveName)
+        UserDefaults.standard.set(
+            [window.frame.minX, window.frame.minY, window.frame.width, window.frame.height],
+            forKey: frameDefaultsKey
+        )
+    }
+}
+
+@MainActor
+private final class MainWindowFramePersistenceController: NSObject {
+    static let shared = MainWindowFramePersistenceController()
+
+    private var hasStarted = false
+    private weak var observedWindow: NSWindow?
+    private var lastSavedFrame: NSRect?
+    private var timer: Timer?
+
+    func start() {
+        guard !hasStarted else { return }
+        hasStarted = true
+        let frameTimer = Timer(
+            timeInterval: 0.25,
+            target: self,
+            selector: #selector(synchronizeFrame),
+            userInfo: nil,
+            repeats: true
+        )
+        timer = frameTimer
+        RunLoop.main.add(frameTimer, forMode: .common)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(applicationWillTerminate),
+            name: NSApplication.willTerminateNotification,
+            object: nil
+        )
+    }
+
+    @objc private func applicationWillTerminate(_ notification: Notification) {
+        synchronizeFrame()
+    }
+
+    @objc private func synchronizeFrame() {
+        guard let window = NSApplication.shared.windows.first(where: {
+            $0.title == "Zoid 99" && $0.styleMask.contains(.titled)
+        }) else {
+            return
+        }
+
+        if observedWindow !== window {
+            observedWindow = window
+            MainWindowFramePersistence.restore(window)
+            MainWindowFramePersistence.configure(window)
+            lastSavedFrame = window.frame
+            return
+        }
+
+        guard lastSavedFrame != window.frame else { return }
+        MainWindowFramePersistence.save(window)
+        lastSavedFrame = window.frame
+    }
+}
 
 @main
 struct Zoid99App: App {
     @StateObject private var store: AppStore
 
     init() {
+        MainWindowFramePersistenceController.shared.start()
         let isPackagedApplication = Bundle.main.bundleURL.pathExtension == "app"
         let notificationDelivery: any NotificationDelivering
         if isPackagedApplication {
