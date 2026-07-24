@@ -903,6 +903,8 @@ struct NotificationsView: View {
 struct SettingsView: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var discordWebhook = ""
+    @State private var confirmingDiscordRemoval = false
 
     var body: some View {
         ScrollView {
@@ -993,6 +995,76 @@ struct SettingsView: View {
                 .padding(16)
                 .background(SumiColor.softPaper)
                 .overlay(Rectangle().stroke(SumiColor.rule, lineWidth: 1))
+                SectionTitle("DISCORD CHANNEL")
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack {
+                        Toggle(
+                            "Enable Discord delivery",
+                            isOn: Binding(
+                                get: { store.discordEnabled },
+                                set: store.setDiscordEnabled
+                            )
+                        )
+                        .disabled(!store.discordConfigured)
+                        Spacer()
+                        StateLabel(
+                            text: store.discordStatus.label,
+                            urgent: {
+                                if case .failed = store.discordStatus { return true }
+                                return !store.discordConfigured
+                            }()
+                        )
+                    }
+                    Text(DiscordWebhookValidator.redactedDescription(configured: store.discordConfigured))
+                        .font(SumiFont.body())
+                        .foregroundStyle(SumiColor.mutedInk)
+                    SecureField(
+                        store.discordConfigured
+                            ? "Paste a replacement Discord webhook"
+                            : "Paste a Discord webhook",
+                        text: $discordWebhook
+                    )
+                    .sumiField()
+                    .textContentType(.password)
+                    HStack {
+                        Button(store.discordConfigured ? "Replace & validate" : "Save & validate") {
+                            let submitted = discordWebhook
+                            discordWebhook = ""
+                            Task { await store.configureDiscordWebhook(submitted) }
+                        }
+                        .buttonStyle(SumiButtonStyle(primary: true))
+                        .disabled(discordWebhook.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        Button("Send safe test") {
+                            Task { await store.sendDiscordTest() }
+                        }
+                        .buttonStyle(SumiButtonStyle())
+                        .disabled(!store.discordConfigured)
+                        Button("Remove") {
+                            discordWebhook = ""
+                            confirmingDiscordRemoval = true
+                        }
+                        .buttonStyle(SumiButtonStyle(urgent: true))
+                        .disabled(!store.discordConfigured)
+                    }
+                    Divider().overlay(SumiColor.rule)
+                    Toggle(
+                        "High-priority opportunities",
+                        isOn: Binding(
+                            get: { store.discordHighPriorityEnabled },
+                            set: store.setDiscordHighPriorityEnabled
+                        )
+                    )
+                    .disabled(!store.discordEnabled)
+                    Text("Discord receives only new, confirmed high-priority research opportunities. Messages include the title, score, source, reason, and a public HTTPS source link when available. Credentials, diagnostics, and browsing history are never included.")
+                        .font(SumiFont.body())
+                        .foregroundStyle(SumiColor.mutedInk)
+                    Text("Delivery is direct from this Mac. Rate-limit retries are capped at three attempts and 30 seconds. Alerts are recorded locally to prevent repeats after refresh or relaunch.")
+                        .font(SumiFont.body())
+                        .foregroundStyle(SumiColor.mutedInk)
+                }
+                .padding(16)
+                .background(SumiColor.softPaper)
+                .overlay(Rectangle().stroke(SumiColor.rule, lineWidth: 1))
                 Divider().overlay(SumiColor.ink)
                 SectionTitle("EXTERNAL PROVIDER CONNECTIONS")
                 ProviderConnectionsLedger()
@@ -1019,6 +1091,19 @@ struct SettingsView: View {
             .padding(30)
         }
         .sumiPage()
+        .task { await store.refreshDiscordConfigurationStatus() }
+        .sheet(isPresented: $confirmingDiscordRemoval) {
+            SumiConfirmationSheet(
+                title: "Remove Discord webhook?",
+                message: "This removes the webhook from macOS Keychain and disables Discord delivery. Native macOS notifications are unchanged.",
+                confirmTitle: "Remove webhook",
+                cancel: { confirmingDiscordRemoval = false },
+                confirm: {
+                    confirmingDiscordRemoval = false
+                    Task { await store.removeDiscordWebhook() }
+                }
+            )
+        }
     }
 
     private func hourLabel(_ hour: Int) -> String {

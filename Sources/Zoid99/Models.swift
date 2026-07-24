@@ -326,6 +326,9 @@ struct AppSettings: Codable, Hashable, Sendable {
     var quietStartHour: Int
     var quietEndHour: Int
     var digestHour: Int
+    var discordEnabled: Bool
+    var discordHighPriorityEnabled: Bool
+    var discordDeliveredOpportunityIDs: Set<UUID>
 
     static let defaults = AppSettings(
         setupComplete: false,
@@ -336,7 +339,10 @@ struct AppSettings: Codable, Hashable, Sendable {
         quietHoursEnabled: true,
         quietStartHour: 22,
         quietEndHour: 8,
-        digestHour: 18
+        digestHour: 18,
+        discordEnabled: false,
+        discordHighPriorityEnabled: true,
+        discordDeliveredOpportunityIDs: []
     )
 
     init(
@@ -348,7 +354,10 @@ struct AppSettings: Codable, Hashable, Sendable {
         quietHoursEnabled: Bool = true,
         quietStartHour: Int = 22,
         quietEndHour: Int = 8,
-        digestHour: Int = 18
+        digestHour: Int = 18,
+        discordEnabled: Bool = false,
+        discordHighPriorityEnabled: Bool = true,
+        discordDeliveredOpportunityIDs: Set<UUID> = []
     ) {
         self.setupComplete = setupComplete
         self.refreshMinutes = refreshMinutes
@@ -359,12 +368,16 @@ struct AppSettings: Codable, Hashable, Sendable {
         self.quietStartHour = quietStartHour
         self.quietEndHour = quietEndHour
         self.digestHour = digestHour
+        self.discordEnabled = discordEnabled
+        self.discordHighPriorityEnabled = discordHighPriorityEnabled
+        self.discordDeliveredOpportunityIDs = discordDeliveredOpportunityIDs
     }
 
     private enum CodingKeys: String, CodingKey {
         case setupComplete, refreshMinutes, notificationPermissionRequested
         case notificationsEnabled, notificationPermission, quietHoursEnabled
         case quietStartHour, quietEndHour, digestHour
+        case discordEnabled, discordHighPriorityEnabled, discordDeliveredOpportunityIDs
     }
 
     init(from decoder: Decoder) throws {
@@ -381,6 +394,11 @@ struct AppSettings: Codable, Hashable, Sendable {
         quietStartHour = try values.decodeIfPresent(Int.self, forKey: .quietStartHour) ?? 22
         quietEndHour = try values.decodeIfPresent(Int.self, forKey: .quietEndHour) ?? 8
         digestHour = try values.decodeIfPresent(Int.self, forKey: .digestHour) ?? 18
+        discordEnabled = try values.decodeIfPresent(Bool.self, forKey: .discordEnabled) ?? false
+        discordHighPriorityEnabled =
+            try values.decodeIfPresent(Bool.self, forKey: .discordHighPriorityEnabled) ?? true
+        discordDeliveredOpportunityIDs =
+            try values.decodeIfPresent(Set<UUID>.self, forKey: .discordDeliveredOpportunityIDs) ?? []
     }
 }
 
