@@ -114,6 +114,22 @@ final class DiscordNotificationTests: XCTestCase {
         XCTAssertEqual(first.deliveredOpportunityIDs, [opportunity.id])
     }
 
+    func testDiscordDeliveryRemainsIndependentWhenNativeNotificationsAreDisabled() async {
+        let opportunity = opportunity()
+        let service = RecordingDiscordService(configured: true)
+        let coordinator = DiscordNotificationCoordinator(service: service)
+
+        let result = await coordinator.process(
+            opportunities: [opportunity],
+            enabled: true,
+            deliveredOpportunityIDs: []
+        )
+
+        let messageCount = await service.messages.count
+        XCTAssertEqual(messageCount, 1)
+        XCTAssertEqual(result.deliveredOpportunityIDs, [opportunity.id])
+    }
+
     func testRateLimitRetriesAreBoundedAndHonorCappedRetryAfter() async throws {
         let store = MemoryDiscordStore(current: canonicalWebhook)
         let transport = RecordingDiscordTransport(responses: [

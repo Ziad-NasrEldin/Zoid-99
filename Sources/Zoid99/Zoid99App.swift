@@ -196,9 +196,7 @@ struct Zoid99App: App {
                     "Last refresh: \($0.formatted(date: .abbreviated, time: .shortened))"
                 } ?? "Last refresh: no successful sync")
                 Text("Status: \(store.statusMessage)")
-                Text(store.quietHoursEnabled
-                    ? "Quiet hours \(String(format: "%02d:00", store.quietStartHour))-\(String(format: "%02d:00", store.quietEndHour))"
-                    : "Quiet hours off")
+                Text("Delivery: eligible 24/7 while Zoid 99 is running")
                 Divider()
                 Button(store.isRefreshing ? "Refreshing research" : "Refresh research") {
                     Task { await store.refresh() }
