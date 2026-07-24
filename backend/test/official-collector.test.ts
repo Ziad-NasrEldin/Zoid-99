@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ResearchBatch } from "../src/domain.js";
-import { collectOfficialSources } from "../src/official-collector.js";
+import { collectOfficialSources, officialSourceCatalog } from "../src/official-collector.js";
 import { fixtureOpportunity, MemoryRepository } from "./support/memory-repository.js";
 
 test("the server collector persists official RSS research without the macOS app", async () => {
@@ -90,4 +90,19 @@ test("a healthy official feed with zero records stays connected and does not fai
   assert.equal(health?.state, "Connected");
   assert.equal(health?.dataTruth, "Live");
   assert.match(health?.evidence ?? "", /0 items collected/);
+});
+
+test("the default catalog includes the credential-free official AI sources", () => {
+  assert.deepEqual(
+    officialSourceCatalog.map((source) => source.id),
+    [
+      "openai-news",
+      "huggingface-transformers-releases",
+      "arxiv-cs-ai",
+      "google-ai-news",
+      "google-gemini-cli-releases",
+      "anthropic-claude-code-releases",
+    ],
+  );
+  assert.ok(officialSourceCatalog.every((source) => source.endpoint.startsWith("https://")));
 });

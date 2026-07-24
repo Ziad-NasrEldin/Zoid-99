@@ -181,14 +181,18 @@ final class ResearchPipelineTests: XCTestCase {
     @MainActor
     func testDurableRestartRestoresDispositionWatchlistSettingsAndHistory() async {
         let persistence = MemoryPersistence()
-        let firstLaunch = AppStore(persistence: persistence)
+        let firstLaunch = AppStore(persistence: persistence, sync: NoopResearchSync())
         let opportunity = firstLaunch.visibleOpportunities[0]
         firstLaunch.updateDisposition(.saved, id: opportunity.id)
         firstLaunch.addWatchlist(kind: .keyword, value: "local inference")
         firstLaunch.setRefreshMinutes(30)
         await firstLaunch.refresh()
 
-        let restarted = AppStore(persistence: persistence, loadDemoDataWhenEmpty: false)
+        let restarted = AppStore(
+            persistence: persistence,
+            sync: NoopResearchSync(),
+            loadDemoDataWhenEmpty: false
+        )
 
         XCTAssertEqual(restarted.opportunities.first { $0.id == opportunity.id }?.disposition, .saved)
         XCTAssertTrue(restarted.watchlist.contains { $0.value == "local inference" })

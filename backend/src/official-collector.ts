@@ -43,6 +43,27 @@ export const officialSourceCatalog: CatalogSource[] = [
     endpoint: "https://export.arxiv.org/api/query?search_query=cat%3Acs.AI&start=0&max_results=30&sortBy=submittedDate&sortOrder=descending",
     homepage: "https://arxiv.org/list/cs.AI/recent",
   },
+  {
+    id: "google-ai-news",
+    name: "Google AI News",
+    kind: "rss",
+    endpoint: "https://blog.google/innovation-and-ai/technology/ai/rss/",
+    homepage: "https://blog.google/innovation-and-ai/technology/ai/",
+  },
+  {
+    id: "google-gemini-cli-releases",
+    name: "Google Gemini CLI Releases",
+    kind: "github",
+    endpoint: "https://api.github.com/repos/google-gemini/gemini-cli/releases?per_page=30",
+    homepage: "https://github.com/google-gemini/gemini-cli",
+  },
+  {
+    id: "anthropic-claude-code-releases",
+    name: "Anthropic Claude Code Releases",
+    kind: "github",
+    endpoint: "https://api.github.com/repos/anthropics/claude-code/releases?per_page=30",
+    homepage: "https://github.com/anthropics/claude-code",
+  },
 ];
 
 export type OfficialCollectorOptions = {

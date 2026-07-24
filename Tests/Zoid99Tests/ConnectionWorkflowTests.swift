@@ -19,6 +19,7 @@ final class ConnectionWorkflowTests: XCTestCase {
         let credentials = MemoryCredentialStore()
         let service = LocalProviderConnectionService(
             credentials: credentials,
+            validator: SetupRequiredProviderValidator(),
             now: { Date(timeIntervalSince1970: 1_785_000_000) }
         )
 
@@ -28,6 +29,81 @@ final class ConnectionWorkflowTests: XCTestCase {
         XCTAssertTrue(result.evidence.contains("validator is required"))
         XCTAssertFalse(result.evidence.contains("fixture-secret"))
         XCTAssertFalse(try! credentials.contains(provider: .youtube))
+    }
+
+    func testOfficialValidatorAcceptsProviderReadAccessWithoutLeakingCredentials() async {
+        let transport = ConnectionHTTPTransport(responses: [
+            HTTPResponse(statusCode: 200, headers: [:], body: Data("{}".utf8)),
+            HTTPResponse(
+                statusCode: 200,
+                headers: [:],
+                body: Data(#"{"data":[{"instagram_business_account":{"id":"1"}}]}"#.utf8)
+            ),
+            HTTPResponse(statusCode: 200, headers: [:], body: Data("{}".utf8)),
+        ])
+        let validator = OfficialProviderCredentialValidator(transport: transport)
+
+        let youtube = await validator.validate(.youtube, credential: "youtube-secret")
+        let instagram = await validator.validate(.meta, credential: "instagram-secret")
+        let x = await validator.validate(.x, credential: "x-secret")
+        let requests = await transport.requests
+
+        XCTAssertEqual([youtube.state, instagram.state, x.state], [.connected, .connected, .connected])
+        XCTAssertFalse([youtube, instagram, x].map(\.evidence).joined().contains("secret"))
+        XCTAssertTrue(requests[0].url.absoluteString.contains("youtube/v3/videos"))
+        XCTAssertEqual(requests[1].headers["Authorization"], "Bearer instagram-secret")
+        XCTAssertEqual(requests[2].headers["Authorization"], "Bearer x-secret")
+    }
+
+    func testProviderValidationFailureDoesNotStoreSubmittedCredential() async {
+        let credentials = MemoryCredentialStore()
+        let transport = ConnectionHTTPTransport(responses: [
+            HTTPResponse(statusCode: 403, headers: [:], body: Data())
+        ])
+        let service = LocalProviderConnectionService(
+            credentials: credentials,
+            validator: OfficialProviderCredentialValidator(transport: transport)
+        )
+
+        let result = await service.connect(.youtube, credential: "rejected-secret")
+
+        XCTAssertEqual(result.state, .setupRequired)
+        XCTAssertFalse(result.evidence.contains("rejected-secret"))
+        XCTAssertFalse(try! credentials.contains(provider: .youtube))
+    }
+
+    func testLocalResearchSyncCollectsOfficialFeedsWithoutBackendCredentials() async throws {
+        let item = try XCTUnwrap(ResearchFixtures.allSix.first { $0.group == .official })
+        let connector = FixtureProductionConnector(
+            collection: ConnectorCollection(
+                items: [item],
+                state: .available,
+                validators: nil,
+                collectedAt: item.collectedAt,
+                evidence: "1 published item mapped from a credential-free official source."
+            )
+        )
+        let sync = LocalResearchSync(officialConnectors: [connector], environment: [:])
+
+        let results = await sync.synchronize()
+
+        XCTAssertEqual(results.first { $0.group == .official }?.state, .connected)
+        XCTAssertEqual(results.first { $0.group == .official }?.items, [item])
+        XCTAssertEqual(results.first { $0.group == .googleTrends }?.state, .unsupported)
+        XCTAssertEqual(results.first { $0.group == .comments }?.state, .setupRequired)
+    }
+
+    func testLocalGoogleTrendsRemainsUnsupportedWithoutApprovedOfficialAccess() async {
+        let sync = LocalResearchSync(officialConnectors: [], environment: [:])
+        let results = await sync.synchronize(watchlist: [
+            WatchlistEntry(id: UUID(), kind: .topic, value: "AI agents", highPriority: true)
+        ])
+
+        let trends = results.first { $0.group == .googleTrends }
+        XCTAssertEqual(trends?.state, .unsupported)
+        XCTAssertEqual(trends?.dataTruth, .unavailable)
+        XCTAssertTrue(trends?.items.isEmpty == true)
+        XCTAssertTrue(trends?.evidence.contains("apply for Google Trends API alpha access") == true)
     }
 
     func testVerifiedCredentialIsStoredAndMarkedConnected() async {
@@ -142,6 +218,29 @@ private struct ConnectedCredentialValidator: ProviderCredentialValidating {
             checkedAt: Date(timeIntervalSince1970: 1_785_000_000),
             retryAt: nil
         )
+    }
+}
+
+private actor ConnectionHTTPTransport: HTTPTransport {
+    private var responses: [HTTPResponse]
+    private(set) var requests: [HTTPRequest] = []
+
+    init(responses: [HTTPResponse]) {
+        self.responses = responses
+    }
+
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        requests.append(request)
+        return responses.removeFirst()
+    }
+}
+
+private struct FixtureProductionConnector: ProductionSourceConnector {
+    let source = OfficialAISourceCatalog.starter[0]
+    let collection: ConnectorCollection
+
+    func collect() async -> ConnectorCollection {
+        collection
     }
 }
 

@@ -118,9 +118,13 @@ struct WatchlistConnectorPlan: Equatable, Sendable {
 enum WatchlistConnectorFactory {
     static func connectors(
         for entries: [WatchlistEntry],
-        environment: [String: String]
+        environment: [String: String],
+        credentialStore: any CredentialStoring = KeychainCredentialStore()
     ) -> [GroupedSourceConnector] {
         let plan = WatchlistConnectorPlan(entries: entries)
+        let storedYouTube = try? credentialStore.credential(provider: .youtube)
+        let storedInstagram = try? credentialStore.credential(provider: .meta)
+        let storedX = try? credentialStore.credential(provider: .x)
         var result = plan.officialSourceURLs.enumerated().map { index, url in
             GroupedSourceConnector(
                 group: .official,
@@ -144,16 +148,29 @@ enum WatchlistConnectorFactory {
                 credential = .oauthAccessToken(oauth)
             } else if let apiKey = environment["ZOID99_YOUTUBE_API_KEY"].nonEmpty {
                 credential = .apiKey(apiKey)
+            } else if let apiKey = storedYouTube.nonEmpty {
+                credential = .apiKey(apiKey)
             } else {
                 credential = nil
             }
+            let connector = YouTubeDataConnector(
+                credentialProvider: StaticYouTubeCredentialProvider(credential)
+            )
             result.append(
                 GroupedSourceConnector(
                     group: .youtube,
                     connector: WatchlistYouTubeConnector(
-                        connector: YouTubeDataConnector(
-                            credentialProvider: StaticYouTubeCredentialProvider(credential)
-                        ),
+                        connector: connector,
+                        channels: plan.youtubeChannels,
+                        searches: plan.youtubeSearches
+                    )
+                )
+            )
+            result.append(
+                GroupedSourceConnector(
+                    group: .comments,
+                    connector: WatchlistYouTubeCommentsConnector(
+                        connector: connector,
                         channels: plan.youtubeChannels,
                         searches: plan.youtubeSearches
                     )
@@ -162,12 +179,16 @@ enum WatchlistConnectorFactory {
         }
 
         if !plan.xUsernames.isEmpty || !plan.xQueries.isEmpty {
+            var xEnvironment = environment
+            if xEnvironment["ZOID99_X_BEARER_TOKEN"].nonEmpty == nil, let storedX = storedX.nonEmpty {
+                xEnvironment["ZOID99_X_BEARER_TOKEN"] = storedX
+            }
             result.append(
                 GroupedSourceConnector(
                     group: .x,
                     connector: XAPIConnector(
                         configuration: .fromEnvironment(
-                            environment,
+                            xEnvironment,
                             monitoredUsernames: plan.xUsernames,
                             recentSearchQueries: plan.xQueries
                         )
@@ -177,7 +198,9 @@ enum WatchlistConnectorFactory {
         }
 
         if !plan.creators.isEmpty || environment["ZOID99_INSTAGRAM_ACCOUNT_ID"].nonEmpty != nil {
-            let token = environment["ZOID99_INSTAGRAM_ACCESS_TOKEN"].nonEmpty.map(InstagramAccessToken.init)
+            let token = (
+                environment["ZOID99_INSTAGRAM_ACCESS_TOKEN"].nonEmpty ?? storedInstagram.nonEmpty
+            ).map(InstagramAccessToken.init)
             result.append(
                 GroupedSourceConnector(
                     group: .instagram,
@@ -218,6 +241,76 @@ enum WatchlistConnectorFactory {
         }
 
         return result
+    }
+}
+
+struct WatchlistYouTubeCommentsConnector: ProductionSourceConnector {
+    let source = OfficialSource(
+        id: "youtube-comments-api-v3-watchlist",
+        name: "YouTube Data API v3 Comments",
+        kind: .rss,
+        endpoint: URL(string: "https://www.googleapis.com/youtube/v3/commentThreads")!,
+        homepage: URL(string: "https://youtube.com")!,
+        language: "und",
+        country: "global"
+    )
+    let connector: YouTubeDataConnector
+    let channels: [YouTubeMonitoredChannel]
+    let searches: [YouTubeSearchTarget]
+
+    func collect() async -> ConnectorCollection {
+        var discovery: [YouTubeCollection] = []
+        for channel in channels {
+            discovery.append(await connector.collectRecentVideos(channel: channel))
+        }
+        for search in searches {
+            discovery.append(await connector.search(search))
+        }
+        let videos = discovery.flatMap(\.items).uniquedSourceItems().prefix(10)
+        guard !videos.isEmpty else {
+            return ConnectorCollection(
+                items: [],
+                state: .unavailable(statusCode: nil),
+                validators: nil,
+                collectedAt: discovery.map(\.collectedAt).max() ?? .now,
+                evidence: discovery.map(\.evidence).joined(separator: " ")
+            )
+        }
+        var commentCollections: [YouTubeCollection] = []
+        for video in videos {
+            commentCollections.append(
+                await connector.collectComments(
+                    video: YouTubeVideoTarget(
+                        id: video.externalID,
+                        channelKind: .reference,
+                        channelTitle: video.author,
+                        language: video.language,
+                        country: video.country
+                    )
+                )
+            )
+        }
+        let comments = commentCollections.flatMap(\.items).uniquedSourceItems()
+        return ConnectorCollection(
+            items: comments,
+            state: Self.state(commentCollections.map(\.state)),
+            validators: nil,
+            collectedAt: commentCollections.map(\.collectedAt).max() ?? .now,
+            evidence: commentCollections.map(\.evidence).joined(separator: " ")
+        )
+    }
+
+    private static func state(_ states: [YouTubeCollectionState]) -> ConnectorCollectionState {
+        if states.contains(.available) {
+            return .available
+        }
+        if let limited = states.first(where: {
+            if case .rateLimited = $0 { return true }
+            return false
+        }), case let .rateLimited(retryAfter) = limited {
+            return .rateLimited(retryAfter: retryAfter)
+        }
+        return .unavailable(statusCode: nil)
     }
 }
 

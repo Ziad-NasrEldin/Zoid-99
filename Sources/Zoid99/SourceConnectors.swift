@@ -620,6 +620,33 @@ enum OfficialAISourceCatalog {
             homepage: URL(string: "https://arxiv.org/list/cs.AI/recent")!,
             language: "en",
             country: "US"
+        ),
+        OfficialSource(
+            id: "google-ai-news",
+            name: "Google AI News",
+            kind: .rss,
+            endpoint: URL(string: "https://blog.google/innovation-and-ai/technology/ai/rss/")!,
+            homepage: URL(string: "https://blog.google/innovation-and-ai/technology/ai/")!,
+            language: "en",
+            country: "US"
+        ),
+        OfficialSource(
+            id: "google-gemini-cli-releases",
+            name: "Google Gemini CLI Releases",
+            kind: .githubReleases,
+            endpoint: URL(string: "https://api.github.com/repos/google-gemini/gemini-cli/releases?per_page=30")!,
+            homepage: URL(string: "https://github.com/google-gemini/gemini-cli")!,
+            language: "en",
+            country: "US"
+        ),
+        OfficialSource(
+            id: "anthropic-claude-code-releases",
+            name: "Anthropic Claude Code Releases",
+            kind: .githubReleases,
+            endpoint: URL(string: "https://api.github.com/repos/anthropics/claude-code/releases?per_page=30")!,
+            homepage: URL(string: "https://github.com/anthropics/claude-code")!,
+            language: "en",
+            country: "US"
         )
     ]
 }

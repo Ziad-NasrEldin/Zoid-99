@@ -303,12 +303,153 @@ struct NoopResearchSync: ResearchSyncing {
     }
 }
 
+struct LocalResearchSync: ResearchSyncing {
+    private let officialConnectors: [any ProductionSourceConnector]
+    private let environment: [String: String]
+    private let credentialStore: any CredentialStoring
+
+    init(
+        officialConnectors: [any ProductionSourceConnector] = OfficialAISourceCatalog.starter.map {
+            PublicFeedConnector(source: $0)
+        },
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        credentialStore: any CredentialStoring = KeychainCredentialStore()
+    ) {
+        self.officialConnectors = officialConnectors
+        self.environment = environment
+        self.credentialStore = credentialStore
+    }
+
+    func synchronize() async -> [SourceSyncResult] {
+        await synchronize(watchlist: [])
+    }
+
+    func synchronize(watchlist: [WatchlistEntry]) async -> [SourceSyncResult] {
+        let planned = officialConnectors.map {
+            GroupedSourceConnector(group: .official, connector: $0)
+        } + WatchlistConnectorFactory.connectors(
+            for: watchlist,
+            environment: environment,
+            credentialStore: credentialStore
+        )
+        let collections = await withTaskGroup(of: LocalGroupedCollection.self) { group in
+            for connector in planned {
+                group.addTask {
+                    LocalGroupedCollection(
+                        group: connector.group,
+                        collection: await connector.connector.collect()
+                    )
+                }
+            }
+            return await group.reduce(into: []) { $0.append($1) }
+        }
+        return SourceGroup.allCases.map { sourceGroup in
+            result(
+                for: sourceGroup,
+                collections: collections.filter { $0.group == sourceGroup }.map(\.collection)
+            )
+        }
+    }
+
+    private func result(for group: SourceGroup, collections: [ConnectorCollection]) -> SourceSyncResult {
+        guard !collections.isEmpty else {
+            return unavailableResult(for: group)
+        }
+        let collectedAt = collections.map(\.collectedAt).max() ?? .now
+        let usable = collections.filter {
+            $0.state == .available || $0.state == .notModified || $0.state == .delayed
+        }
+        let items = usable.flatMap(\.items)
+        let evidence = collections.map(\.evidence).filter { !$0.isEmpty }.joined(separator: " ")
+        if !usable.isEmpty {
+            let hasCurrentSource = usable.contains { $0.state == .available }
+            let isDelayed = !hasCurrentSource
+            return SourceSyncResult(
+                group: group,
+                collectedAt: collectedAt,
+                items: items,
+                state: isDelayed ? .delayed : .connected,
+                dataTruth: isDelayed ? .delayed : .live,
+                evidence: evidence
+            )
+        }
+        if collections.contains(where: {
+            if case .rateLimited = $0.state { return true }
+            return false
+        }) {
+            return SourceSyncResult(
+                group: group,
+                collectedAt: collectedAt,
+                items: [],
+                state: .rateLimited,
+                dataTruth: .rateLimited,
+                evidence: evidence
+            )
+        }
+        if group == .googleTrends {
+            return SourceSyncResult(
+                group: group,
+                collectedAt: collectedAt,
+                items: [],
+                state: .unsupported,
+                dataTruth: .unavailable,
+                evidence: evidence
+            )
+        }
+        let setupRequired = evidence.localizedCaseInsensitiveContains("credential")
+            || evidence.localizedCaseInsensitiveContains("setup required")
+            || evidence.localizedCaseInsensitiveContains("not configured")
+        return SourceSyncResult(
+            group: group,
+            collectedAt: collectedAt,
+            items: [],
+            state: setupRequired ? .setupRequired : .unavailable,
+            dataTruth: setupRequired ? .missing : .unavailable,
+            evidence: evidence
+        )
+    }
+
+    private func unavailableResult(for group: SourceGroup) -> SourceSyncResult {
+        let state: ConnectionState = group == .googleTrends ? .unsupported : .setupRequired
+        let evidence: String
+        switch group {
+        case .youtube:
+            evidence = "A YouTube Data API key and at least one creator or topic watchlist are required."
+        case .comments:
+            evidence = "Comments use the same YouTube Data API key and watched videos."
+        case .googleTrends:
+            evidence = "Official Google Trends API access is approval-gated and is not enabled in this local build."
+        case .instagram:
+            evidence = "A long-lived professional-account token and at least one creator watchlist are required."
+        case .x:
+            evidence = "An X API read bearer token and at least one creator or topic watchlist are required."
+        case .official:
+            evidence = "No credential-free official source connector is configured."
+        }
+        return SourceSyncResult(
+            group: group,
+            collectedAt: .now,
+            items: [],
+            state: state,
+            dataTruth: group == .googleTrends ? .unavailable : .missing,
+            evidence: evidence
+        )
+    }
+}
+
+private struct LocalGroupedCollection: Sendable {
+    let group: SourceGroup
+    let collection: ConnectorCollection
+}
+
 struct ProductionResearchSync: ResearchSyncing {
     private let backend: BackendResearchSync?
+    private let local: LocalResearchSync
     private let environment: [String: String]
 
     init(environment: [String: String] = ProcessInfo.processInfo.environment) {
         self.environment = environment
+        self.local = LocalResearchSync(environment: environment)
         guard
             let rawURL = environment["ZOID99_API_BASE_URL"],
             let baseURL = URL(string: rawURL),
@@ -338,12 +479,12 @@ struct ProductionResearchSync: ResearchSyncing {
     }
 
     func synchronize() async -> [SourceSyncResult] {
-        guard let backend else { return await NoopResearchSync().synchronize() }
+        guard let backend else { return await local.synchronize() }
         return await backend.synchronize()
     }
 
     func synchronize(watchlist: [WatchlistEntry]) async -> [SourceSyncResult] {
-        guard let backend else { return await NoopResearchSync().synchronize() }
+        guard let backend else { return await local.synchronize(watchlist: watchlist) }
         return await backend.synchronize(
             additionalConnectors: WatchlistConnectorFactory.connectors(
                 for: watchlist,
