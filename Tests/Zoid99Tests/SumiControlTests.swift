@@ -66,6 +66,20 @@ final class SumiControlTests: XCTestCase {
         )
     }
 
+    func testRadarQuickActionsUseInlinePlacementWithoutChangingToday() {
+        XCTAssertEqual(OpportunityQuickActionPlacement.today, .trailingRail)
+        XCTAssertEqual(OpportunityQuickActionPlacement.radar, .inlineRow)
+        XCTAssertEqual(OpportunityQuickActionPlacement.inlineRow.minimumTargetSize, 34)
+    }
+
+    func testQuickActionHierarchyDistinguishesRecoverableAndSuppressiveActions() {
+        XCTAssertEqual(OpportunityQuickAction.save.tone, .standard)
+        XCTAssertEqual(OpportunityQuickAction.watch.tone, .standard)
+        XCTAssertEqual(OpportunityQuickAction.dismiss.tone, .caution)
+        XCTAssertEqual(OpportunityQuickAction.mute.tone, .destructive)
+        XCTAssertTrue(OpportunityQuickAction.allCases.allSatisfy { !$0.accessibilityHint.isEmpty })
+    }
+
     func testSelectionCursorMovesWithinMenuBounds() {
         XCTAssertEqual(SumiSelectionCursor.movedIndex(current: 1, count: 3, direction: .down), 2)
         XCTAssertEqual(SumiSelectionCursor.movedIndex(current: 2, count: 3, direction: .down), 2)

@@ -119,7 +119,7 @@ struct SavedView: View {
                     } else {
                         ForEach(results) { opportunity in
                             VStack(alignment: .trailing, spacing: 0) {
-                                OpportunityRow(opportunity: opportunity, showsQuickActions: false)
+                                OpportunityRow(opportunity: opportunity, quickActionPlacement: .none)
                                 Button("Remove from Saved") {
                                     _ = store.toggleSavedOpportunity(id: opportunity.id)
                                 }
@@ -194,7 +194,7 @@ struct TodayView: View {
 
                 SectionTitle("PRIORITY LEDGER")
                 ForEach(store.visibleOpportunities) { opportunity in
-                    OpportunityRow(opportunity: opportunity, showsQuickActions: true)
+                    OpportunityRow(opportunity: opportunity, quickActionPlacement: .today)
                         .sumiRowTransition()
                 }
                 .sumiCollectionMotion(store.visibleOpportunities.map(\.id))
@@ -261,8 +261,25 @@ enum OpportunityQuickAction: String, CaseIterable, Identifiable {
         switch self {
         case .save: "Save this opportunity"
         case .watch: "Watch this opportunity for updates"
-        case .dismiss: "Dismiss this opportunity from Today"
-        case .mute: "Mute this opportunity from Today"
+        case .dismiss: "Dismiss this opportunity from active lists"
+        case .mute: "Mute this topic across active lists"
+        }
+    }
+
+    var accessibilityHint: String {
+        switch self {
+        case .save: "Toggles this opportunity in the durable Saved collection"
+        case .watch: "Adds this topic to Watchlists, or opens Watchlists when already selected"
+        case .dismiss: "Removes this opportunity from active lists until it is restored"
+        case .mute: "Suppresses every opportunity for this topic until it is unmuted"
+        }
+    }
+
+    var tone: OpportunityQuickActionTone {
+        switch self {
+        case .save, .watch: .standard
+        case .dismiss: .caution
+        case .mute: .destructive
         }
     }
 
@@ -299,8 +316,19 @@ enum OpportunityQuickActionVisualRole: Equatable {
     case destructive
 }
 
+enum OpportunityQuickActionTone: Equatable {
+    case standard
+    case caution
+    case destructive
+}
+
 enum OpportunityQuickActionPlacement: Equatable {
+    case none
     case integratedTrailingRow
+    case inlineRow
+
+    static let today = Self.integratedTrailingRow
+    static let radar = Self.inlineRow
 }
 
 enum OpportunityQuickActionLayout {
@@ -346,7 +374,7 @@ private struct SectionTitle: View {
 struct OpportunityRow: View {
     @EnvironmentObject private var store: AppStore
     let opportunity: Opportunity
-    let showsQuickActions: Bool
+    let quickActionPlacement: OpportunityQuickActionPlacement
 
     private var textDirection: LayoutDirection {
         ResearchTextDirection.resolve(
@@ -356,40 +384,24 @@ struct OpportunityRow: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            Button {
-                store.selectedOpportunityID = opportunity.id
-            } label: {
-                rowContent
-            }
-            .buttonStyle(.plain)
-            .sumiHoverFeedback()
-            .accessibilityLabel(
-                "\(opportunity.title), \(opportunity.verification.rawValue), "
-                    + "\(opportunity.items.count) sources"
-            )
-            .accessibilityHint("Open the evidence and opportunity actions")
-
-            if showsQuickActions {
+        VStack(alignment: .leading, spacing: 0) {
+            opportunityButton
+            if quickActionPlacement == .integratedTrailingRow {
                 HStack(spacing: OpportunityQuickActionLayout.spacing) {
                     Spacer(minLength: 0)
-                    ForEach(OpportunityQuickAction.allCases) { action in
-                        OpportunityQuickActionButton(
-                            action: action,
-                            selected: action.isSelected(
-                                isSaved: store.isOpportunitySaved(opportunity.id),
-                                isWatched: store.isOpportunityWatched(opportunity.id)
-                            )
-                        ) {
-                            perform(action)
-                        }
-                    }
+                    quickActions
                 }
                 .padding(.top, 2)
                 .padding(.bottom, 12)
                 .environment(\.layoutDirection, .leftToRight)
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel("Opportunity quick actions")
+            } else if quickActionPlacement == .inlineRow {
+                HStack(spacing: 0) {
+                    Spacer(minLength: 18)
+                    quickActions
+                }
+                .padding(.bottom, 10)
             }
         }
         .overlay(alignment: .bottom) { Divider().overlay(SumiColor.rule) }
@@ -398,6 +410,44 @@ struct OpportunityRow: View {
             set: { if !$0 { store.selectedOpportunityID = nil } }
         )) {
             OpportunityDetailView(opportunityID: opportunity.id)
+        }
+    }
+
+    private var opportunityButton: some View {
+        Button {
+            store.selectedOpportunityID = opportunity.id
+        } label: {
+            rowContent
+        }
+        .buttonStyle(.plain)
+        .sumiHoverFeedback()
+        .accessibilityLabel(
+            "\(opportunity.title), \(opportunity.verification.rawValue), "
+                + "\(opportunity.items.count) sources"
+        )
+        .accessibilityHint("Open the evidence and opportunity actions")
+    }
+
+    @ViewBuilder
+    private var quickActions: some View {
+        let isSaved = store.isOpportunitySaved(opportunity.id)
+        let isWatched = store.isOpportunityWatched(opportunity.id)
+        HStack(spacing: OpportunityQuickActionLayout.spacing) {
+            quickActionButtons(isSaved: isSaved, isWatched: isWatched)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Opportunity quick actions")
+    }
+
+    @ViewBuilder
+    private func quickActionButtons(isSaved: Bool, isWatched: Bool) -> some View {
+        ForEach(OpportunityQuickAction.allCases) { action in
+            OpportunityQuickActionButton(
+                action: action,
+                selected: action.isSelected(isSaved: isSaved, isWatched: isWatched)
+            ) {
+                perform(action)
+            }
         }
     }
 
@@ -466,6 +516,7 @@ struct OpportunityRow: View {
 }
 
 private struct OpportunityQuickActionButton: View {
+    @Environment(\.isEnabled) private var isEnabled
     let action: OpportunityQuickAction
     let selected: Bool
     let perform: () -> Void
@@ -495,6 +546,7 @@ private struct OpportunityQuickActionButton: View {
         .focused($focused)
         .accessibilityLabel(action.accessibilityLabel)
         .accessibilityValue(action.accessibilityValue(selected: selected))
+        .opacity(isEnabled ? 1 : 0.45)
         .accessibilityHint(action.accessibilityHint)
         .accessibilityAddTraits(selected ? [.isSelected] : [])
         .help(action.helpText)
@@ -628,7 +680,7 @@ struct RadarView: View {
                         )
                     } else {
                         ForEach(store.radarOpportunities) {
-                            OpportunityRow(opportunity: $0, showsQuickActions: false)
+                            OpportunityRow(opportunity: $0, quickActionPlacement: .radar)
                         }
                     }
                 }
@@ -678,9 +730,9 @@ struct TopicsView: View {
                         }
                         if !result.opportunities.isEmpty {
                             SectionTitle("RELATED OPPORTUNITIES")
-                    ForEach(result.opportunities) {
-                        OpportunityRow(opportunity: $0, showsQuickActions: false)
-                    }
+                            ForEach(result.opportunities) {
+                                OpportunityRow(opportunity: $0, quickActionPlacement: .none)
+                            }
                         }
                     }
                 }

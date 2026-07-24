@@ -149,6 +149,31 @@ final class OpportunitySortTests: XCTestCase {
         XCTAssertEqual(store.radarOpportunities.map(\.id), [arabicHigher.id, arabicLower.id])
     }
 
+    @MainActor
+    func testLargeRadarProjectionKeepsStableIdentityAndFastFilteringAndSorting() {
+        let store = makeStore(defaults: makeDefaults())
+        store.opportunities = (1...100).map {
+            opportunity(
+                id: UInt8($0),
+                totalBase: $0,
+                publishedOffset: TimeInterval($0),
+                language: $0.isMultiple(of: 2) ? "ar" : "en",
+                regional: $0 % 16
+            )
+        }
+        store.radarLanguage = "ar"
+        store.setRadarSort(.regionalRelevance)
+
+        let startedAt = ContinuousClock.now
+        let firstProjection = store.radarOpportunities
+        let secondProjection = store.radarOpportunities
+        let elapsed = startedAt.duration(to: .now)
+
+        XCTAssertEqual(firstProjection.count, 50)
+        XCTAssertEqual(firstProjection.map(\.id), secondProjection.map(\.id))
+        XCTAssertLessThan(elapsed, .milliseconds(100))
+    }
+
     private func opportunity(
         id: UInt8,
         totalBase: Int,
