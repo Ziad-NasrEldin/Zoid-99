@@ -19,9 +19,13 @@ struct MainShellView: View {
                 .padding(18)
                 .overlay(alignment: .bottom) { Divider().overlay(SumiColor.rule) }
 
-                List(AppDestination.allCases, selection: $selection) { destination in
-                    SidebarRow(destination: destination, selected: selection == destination)
-                        .tag(destination)
+                List(AppDestination.allCases) { destination in
+                    Button {
+                        selection = destination
+                    } label: {
+                        SidebarRow(destination: destination, selected: selection == destination)
+                    }
+                    .buttonStyle(.plain)
                 }
                 .listStyle(.sidebar)
                 .scrollContentBackground(.hidden)
