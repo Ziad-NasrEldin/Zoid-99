@@ -12,6 +12,8 @@ final class AppStore: ObservableObject {
     @Published var sourceHealthHistory: [SourceHealthRecord] = []
     @Published var providerConnections: [ProviderConnection] = []
     @Published var watchlist: [WatchlistEntry] = []
+    @Published private(set) var savedOpportunityIDs: Set<UUID> = []
+    @Published private(set) var muteRules: [MuteRule] = []
     @Published var radarSource: SourceGroup?
     @Published var radarVerification: VerificationState?
     @Published var radarTopic = ""
@@ -134,8 +136,25 @@ final class AppStore: ObservableObject {
 
     var activeOpportunities: [Opportunity] {
         opportunities.filter {
-            $0.disposition != .dismissed && $0.disposition != .muted
+            $0.disposition != .dismissed
+                && $0.disposition != .muted
+                && !isTopicMuted($0.topicKey)
         }
+    }
+
+    var savedOpportunities: [Opportunity] {
+        opportunities
+            .filter { savedOpportunityIDs.contains($0.id) }
+            .sorted { $0.earliestPublishedAt > $1.earliestPublishedAt }
+    }
+
+    var dismissedOpportunities: [Opportunity] {
+        opportunities
+            .filter { $0.disposition == .dismissed }
+            .sorted {
+                ($0.dispositionUpdatedAt ?? $0.earliestPublishedAt)
+                    > ($1.dispositionUpdatedAt ?? $1.earliestPublishedAt)
+            }
     }
 
     var visibleOpportunities: [Opportunity] {
@@ -330,6 +349,138 @@ final class AppStore: ObservableObject {
         statusMessage = "Opportunity \(disposition.writtenState) - syncing"
         persistReportingFailure()
         Task { await synchronizePendingDispositions() }
+    }
+
+    @discardableResult
+    func toggleSavedOpportunity(id: UUID) -> Bool {
+        guard opportunities.contains(where: { $0.id == id }) else {
+            statusMessage = "Opportunity unavailable - no changes made"
+            return false
+        }
+        if savedOpportunityIDs.remove(id) != nil {
+            statusMessage = "Removed from Saved"
+        } else {
+            savedOpportunityIDs.insert(id)
+            statusMessage = "Saved - available in Saved"
+        }
+        persistReportingFailure()
+        return true
+    }
+
+    func isOpportunitySaved(_ id: UUID) -> Bool {
+        savedOpportunityIDs.contains(id)
+    }
+
+    @discardableResult
+    func watchOpportunity(id: UUID) -> Bool {
+        guard let opportunity = opportunities.first(where: { $0.id == id }) else {
+            statusMessage = "Opportunity unavailable - no changes made"
+            return false
+        }
+        guard !isOpportunityWatched(id) else {
+            statusMessage = "Already watched - manage it in Watchlists"
+            return false
+        }
+        return addWatchlist(kind: .topic, value: opportunity.title)
+    }
+
+    func isOpportunityWatched(_ id: UUID) -> Bool {
+        guard let opportunity = opportunities.first(where: { $0.id == id }) else { return false }
+        return watchlist.contains {
+            $0.kind == .topic
+                && (
+                    $0.value.caseInsensitiveCompare(opportunity.title) == .orderedSame
+                        || $0.value.caseInsensitiveCompare(opportunity.topicKey) == .orderedSame
+                )
+        }
+    }
+
+    @discardableResult
+    func stopWatchingOpportunity(id: UUID) -> Bool {
+        guard let opportunity = opportunities.first(where: { $0.id == id }),
+              let entry = watchlist.first(where: {
+                  $0.kind == .topic
+                      && (
+                          $0.value.caseInsensitiveCompare(opportunity.title) == .orderedSame
+                              || $0.value.caseInsensitiveCompare(opportunity.topicKey) == .orderedSame
+                      )
+              }) else {
+            statusMessage = "Watch entry unavailable - no changes made"
+            return false
+        }
+        removeWatchlist(id: entry.id)
+        statusMessage = "Stopped watching \(opportunity.title)"
+        return true
+    }
+
+    @discardableResult
+    func dismissOpportunity(id: UUID) -> Bool {
+        guard opportunities.contains(where: { $0.id == id }) else {
+            statusMessage = "Opportunity unavailable - no changes made"
+            return false
+        }
+        updateDisposition(.dismissed, id: id)
+        statusMessage = "Dismissed - restore it in Sources & Settings"
+        return true
+    }
+
+    @discardableResult
+    func restoreDismissedOpportunity(id: UUID) -> Bool {
+        guard opportunities.contains(where: { $0.id == id && $0.disposition == .dismissed }) else {
+            statusMessage = "Dismissed opportunity unavailable - no changes made"
+            return false
+        }
+        updateDisposition(.active, id: id)
+        statusMessage = "Opportunity restored"
+        return true
+    }
+
+    @discardableResult
+    func muteOpportunityTopic(id: UUID) -> Bool {
+        guard let opportunity = opportunities.first(where: { $0.id == id }) else {
+            statusMessage = "Opportunity unavailable - no changes made"
+            return false
+        }
+        guard !isTopicMuted(opportunity.topicKey) else {
+            statusMessage = "Topic already muted - manage it in Sources & Settings"
+            return false
+        }
+        muteRules.append(
+            MuteRule(
+                id: UUID(),
+                scope: .topic,
+                value: opportunity.topicKey,
+                label: opportunity.title,
+                createdAt: now()
+            )
+        )
+        updateDisposition(.muted, id: id)
+        statusMessage = "Muted topic \(opportunity.title) - manage it in Sources & Settings"
+        persistReportingFailure()
+        return true
+    }
+
+    @discardableResult
+    func unmuteRule(id: UUID) -> Bool {
+        guard let rule = muteRules.first(where: { $0.id == id }) else {
+            statusMessage = "Mute rule unavailable - no changes made"
+            return false
+        }
+        muteRules.removeAll { $0.id == id }
+        for opportunity in opportunities where
+            opportunity.topicKey.caseInsensitiveCompare(rule.value) == .orderedSame
+                && opportunity.disposition == .muted {
+            updateDisposition(.active, id: opportunity.id)
+        }
+        statusMessage = "Unmuted topic \(rule.label)"
+        persistReportingFailure()
+        return true
+    }
+
+    func isTopicMuted(_ topicKey: String) -> Bool {
+        muteRules.contains {
+            $0.scope == .topic && $0.value.caseInsensitiveCompare(topicKey) == .orderedSame
+        }
     }
 
     func synchronizePendingDispositions() async {
@@ -769,7 +920,48 @@ final class AppStore: ObservableObject {
         updateProviderConnectionsFromSourceHealth()
         sourceHealthHistory = stored.sourceHealthHistory
         watchlist = stored.watchlist
-        watchlistNeedsSync = stored.watchlistNeedsSync ?? !stored.watchlist.isEmpty
+        var migratedWatchlist = false
+        for opportunity in stored.opportunities {
+            guard let index = watchlist.firstIndex(where: {
+                $0.kind == .topic
+                    && $0.value.caseInsensitiveCompare(opportunity.topicKey) == .orderedSame
+            }) else { continue }
+            watchlist[index].value = opportunity.title
+            migratedWatchlist = true
+        }
+        savedOpportunityIDs = stored.savedOpportunityIDs
+            ?? Set(stored.opportunities.filter { $0.disposition == .saved }.map(\.id))
+        muteRules = stored.muteRules ?? stored.opportunities.compactMap { opportunity in
+            guard opportunity.disposition == .muted else { return nil }
+            return MuteRule(
+                id: opportunity.dispositionMutationID ?? opportunity.id,
+                scope: .topic,
+                value: opportunity.topicKey,
+                label: opportunity.title,
+                createdAt: opportunity.dispositionUpdatedAt ?? opportunity.earliestPublishedAt
+            )
+        }
+        for opportunity in stored.opportunities where opportunity.disposition == .watched {
+            let exists = watchlist.contains {
+                $0.kind == .topic
+                    && (
+                        $0.value.caseInsensitiveCompare(opportunity.title) == .orderedSame
+                            || $0.value.caseInsensitiveCompare(opportunity.topicKey) == .orderedSame
+                    )
+            }
+            if !exists {
+                watchlist.append(
+                    WatchlistEntry(
+                        id: opportunity.dispositionMutationID ?? opportunity.id,
+                        kind: .topic,
+                        value: opportunity.title,
+                        highPriority: false
+                    )
+                )
+            }
+        }
+        watchlistNeedsSync = migratedWatchlist
+            || (stored.watchlistNeedsSync ?? !stored.watchlist.isEmpty)
         settings = stored.settings
         setupComplete = settings.setupComplete
         refreshMinutes = settings.refreshMinutes
@@ -1064,7 +1256,9 @@ final class AppStore: ObservableObject {
                 sourceHealthHistory: sourceHealthHistory,
                 lastSuccessfulSyncAt: lastSuccessfulSyncAt,
                 pendingDispositionMutations: pendingDispositionMutations,
-                watchlistNeedsSync: watchlistNeedsSync
+                watchlistNeedsSync: watchlistNeedsSync,
+                savedOpportunityIDs: savedOpportunityIDs,
+                muteRules: muteRules
             )
         )
     }
@@ -1092,7 +1286,7 @@ private extension SourceItem {
     }
 }
 
-private extension Opportunity {
+extension Opportunity {
     func matchesResearchQuery(_ query: String) -> Bool {
         title.localizedCaseInsensitiveContains(query)
             || brief.localizedCaseInsensitiveContains(query)

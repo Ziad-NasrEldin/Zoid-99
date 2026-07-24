@@ -74,6 +74,7 @@ struct MainShellView: View {
     private func destinationView(_ destination: AppDestination) -> some View {
         switch destination {
         case .today: TodayView()
+        case .saved: SavedView()
         case .radar: RadarView()
         case .topics: TopicsView()
         case .comments: CommentsView()
@@ -81,6 +82,58 @@ struct MainShellView: View {
         case .notifications: NotificationsView()
         case .settings: SettingsView()
         }
+    }
+}
+
+struct SavedView: View {
+    @EnvironmentObject private var store: AppStore
+    @State private var query = ""
+
+    private var results: [Opportunity] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return store.savedOpportunities }
+        return store.savedOpportunities.filter { $0.matchesResearchQuery(trimmed) }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            LedgerHeader(
+                eyebrow: "Durable collection",
+                title: "Saved",
+                subtitle: "Bookmarks kept on this Mac so you can reopen the original evidence later."
+            )
+            TextField("Search saved opportunities", text: $query)
+                .sumiField()
+                .accessibilityLabel("Search Saved opportunities")
+            Divider().overlay(SumiColor.ink)
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    if results.isEmpty {
+                        ResearchEmptyState(
+                            title: store.savedOpportunities.isEmpty ? "Nothing saved yet" : "Zero matches",
+                            message: store.savedOpportunities.isEmpty
+                                ? "Use Save on any opportunity to keep it here across relaunches."
+                                : "No saved opportunity matches this search."
+                        )
+                    } else {
+                        ForEach(results) { opportunity in
+                            VStack(alignment: .trailing, spacing: 0) {
+                                OpportunityRow(opportunity: opportunity)
+                                Button("Remove from Saved") {
+                                    _ = store.toggleSavedOpportunity(id: opportunity.id)
+                                }
+                                .buttonStyle(SumiButtonStyle())
+                                .help("Remove this bookmark. The opportunity remains in research.")
+                                .accessibilityHint("Removes only the bookmark")
+                                .padding(.vertical, 8)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .padding(30)
+        .sumiPage()
     }
 }
 
@@ -953,11 +1006,11 @@ struct SettingsView: View {
                     .foregroundStyle(SumiColor.mutedInk)
                 }
                 .sumiStateMotion(reduceMotion)
-                Text("Command 1-7 opens each section. Command F focuses Live Radar search. Command R refreshes research.")
+                Text("Command 1-8 opens each section. Command F focuses Live Radar search. Command R refreshes research.")
                     .font(SumiFont.body())
                     .foregroundStyle(SumiColor.mutedInk)
                     .accessibilityLabel(
-                        "Keyboard shortcuts: Command 1 through 7 open sections, "
+                        "Keyboard shortcuts: Command 1 through 8 open sections, "
                             + "Command F focuses search, and Command R refreshes research."
                     )
                 SectionTitle("NOTIFICATIONS")
@@ -1025,6 +1078,8 @@ struct SettingsView: View {
                 .overlay(Rectangle().stroke(SumiColor.rule, lineWidth: 1))
                 .sumiStateMotion(store.notificationsEnabled)
                 .sumiStateMotion(store.quietHoursEnabled)
+                SectionTitle("OPPORTUNITY ACTIONS")
+                OpportunityActionManagement()
                 SectionTitle("DISCORD CHANNEL")
                 VStack(alignment: .leading, spacing: 14) {
                     HStack {
@@ -1138,6 +1193,74 @@ struct SettingsView: View {
 
     private func hourLabel(_ hour: Int) -> String {
         String(format: "%02d:00", hour)
+    }
+}
+
+private struct OpportunityActionManagement: View {
+    @EnvironmentObject private var store: AppStore
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("MUTED TOPICS")
+                    .font(SumiFont.meta(10))
+                    .tracking(1.2)
+                Text("A topic mute hides current and future opportunities with the same research topic.")
+                    .font(SumiFont.body())
+                    .foregroundStyle(SumiColor.mutedInk)
+                if store.muteRules.isEmpty {
+                    Text("No muted topics").font(SumiFont.body())
+                } else {
+                    ForEach(store.muteRules) { rule in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(rule.label).font(SumiFont.body())
+                                Text("Topic-wide rule · Future matching opportunities hidden")
+                                    .font(SumiFont.meta(9))
+                                    .foregroundStyle(SumiColor.mutedInk)
+                            }
+                            Spacer()
+                            Button("Unmute") { _ = store.unmuteRule(id: rule.id) }
+                                .buttonStyle(SumiButtonStyle())
+                                .help("Allow this topic to appear again")
+                                .accessibilityLabel("Unmute topic \(rule.label)")
+                        }
+                        .padding(.vertical, 6)
+                    }
+                }
+            }
+            Divider().overlay(SumiColor.rule)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("RECENTLY DISMISSED")
+                    .font(SumiFont.meta(10))
+                    .tracking(1.2)
+                Text("Dismissed opportunities stay recoverable here.")
+                    .font(SumiFont.body())
+                    .foregroundStyle(SumiColor.mutedInk)
+                if store.dismissedOpportunities.isEmpty {
+                    Text("No dismissed opportunities").font(SumiFont.body())
+                } else {
+                    ForEach(store.dismissedOpportunities) { opportunity in
+                        HStack {
+                            Text(opportunity.title)
+                                .font(SumiFont.body())
+                                .lineLimit(1)
+                            Spacer()
+                            Button("Restore") {
+                                _ = store.restoreDismissedOpportunity(id: opportunity.id)
+                            }
+                            .buttonStyle(SumiButtonStyle())
+                            .help("Return this opportunity to Today and Live Radar")
+                            .accessibilityLabel("Restore dismissed opportunity \(opportunity.title)")
+                        }
+                        .padding(.vertical, 6)
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .background(SumiColor.softPaper)
+        .overlay(Rectangle().stroke(SumiColor.rule, lineWidth: 1))
     }
 }
 
@@ -1438,22 +1561,70 @@ struct OpportunityDetailView: View {
                         }
                         .sumiCollectionMotion(opportunity.items.map(\.id))
                         HStack {
-                            Button("Save") { store.updateDisposition(.saved, id: opportunity.id) }
-                                .accessibilityLabel("Save opportunity")
-                            Button("Watch") { store.updateDisposition(.watched, id: opportunity.id) }
-                                .accessibilityLabel("Watch opportunity")
+                            Button(store.isOpportunitySaved(opportunity.id) ? "Saved" : "Save") {
+                                _ = store.toggleSavedOpportunity(id: opportunity.id)
+                            }
+                            .buttonStyle(
+                                SumiButtonStyle(primary: store.isOpportunitySaved(opportunity.id))
+                            )
+                            .help(
+                                store.isOpportunitySaved(opportunity.id)
+                                    ? "Remove this opportunity from Saved"
+                                    : "Keep this opportunity in the reachable Saved collection"
+                            )
+                            .accessibilityLabel(
+                                store.isOpportunitySaved(opportunity.id)
+                                    ? "Remove opportunity from Saved"
+                                    : "Save opportunity"
+                            )
+                            .accessibilityValue(store.isOpportunitySaved(opportunity.id) ? "Saved" : "Not saved")
+                            Button(store.isOpportunityWatched(opportunity.id) ? "Watching" : "Watch") {
+                                if store.isOpportunityWatched(opportunity.id) {
+                                    store.selectedDestination = .watchlists
+                                    dismiss()
+                                } else {
+                                    _ = store.watchOpportunity(id: opportunity.id)
+                                }
+                            }
+                            .buttonStyle(
+                                SumiButtonStyle(primary: store.isOpportunityWatched(opportunity.id))
+                            )
+                            .help(
+                                store.isOpportunityWatched(opportunity.id)
+                                    ? "Open Watchlists to edit or stop monitoring this topic"
+                                    : "Monitor future source signals matching this topic"
+                            )
+                            .accessibilityLabel(
+                                store.isOpportunityWatched(opportunity.id)
+                                    ? "Watching opportunity topic. Open Watchlists"
+                                    : "Watch opportunity topic"
+                            )
+                            .accessibilityValue(
+                                store.isOpportunityWatched(opportunity.id) ? "Watching" : "Not watching"
+                            )
                             Button("Dismiss") {
-                                store.updateDisposition(.dismissed, id: opportunity.id)
+                                _ = store.dismissOpportunity(id: opportunity.id)
                                 dismiss()
                             }
+                            .buttonStyle(SumiButtonStyle())
                             .accessibilityLabel("Dismiss opportunity")
-                            Button("Mute") {
-                                store.updateDisposition(.muted, id: opportunity.id)
+                            .accessibilityHint("Hide this item. Restore it later in Sources & Settings")
+                            .help("Hide this item. It remains recoverable in Sources & Settings")
+                            Button("Mute topic") {
+                                _ = store.muteOpportunityTopic(id: opportunity.id)
                                 dismiss()
                             }
-                            .accessibilityLabel("Mute opportunity")
+                            .buttonStyle(SumiButtonStyle(urgent: true))
+                            .accessibilityLabel("Mute topic \(opportunity.title)")
+                            .accessibilityHint(
+                                "Hide current and future opportunities with the same research topic"
+                            )
+                            .help(
+                                "Hide current and future opportunities with the same research topic as "
+                                    + "\(opportunity.title). "
+                                    + "Unmute in Sources & Settings."
+                            )
                         }
-                        .buttonStyle(SumiButtonStyle())
                     }
                     .padding(30)
                 }
