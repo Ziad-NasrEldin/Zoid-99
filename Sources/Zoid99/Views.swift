@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct MainShellView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var store: AppStore
     @State private var selection: AppDestination? = .today
 
@@ -23,7 +24,9 @@ struct MainShellView: View {
                     VStack(spacing: 3) {
                         ForEach(AppDestination.allCases) { destination in
                             Button {
-                                selection = destination
+                                withAnimation(SumiMotion(reduceMotion: reduceMotion).pageAnimation) {
+                                    selection = destination
+                                }
                             } label: {
                                 SidebarRow(destination: destination, selected: selection == destination)
                             }
@@ -48,10 +51,13 @@ struct MainShellView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(16)
                 .overlay(alignment: .top) { Divider().overlay(SumiColor.rule) }
+                .sumiStateMotion(store.statusMessage)
             }
             .navigationSplitViewColumnWidth(min: 210, ideal: 240)
         } detail: {
             destinationView(selection ?? .today)
+                .id(selection ?? .today)
+                .transition(.opacity)
         }
         .onChange(of: selection) { _, value in
             if let value { store.selectedDestination = value }
@@ -98,6 +104,8 @@ private struct SidebarRow: View {
         .background(selected ? SumiColor.ink : Color.clear)
         .contentShape(Rectangle())
         .accessibilityAddTraits(selected ? [.isSelected] : [])
+        .sumiStateMotion(selected)
+        .sumiHoverFeedback()
     }
 }
 
@@ -119,6 +127,7 @@ struct TodayView: View {
                     }
                     .buttonStyle(SumiButtonStyle(primary: true))
                     .disabled(store.isRefreshing)
+                    .sumiStateMotion(store.isRefreshing)
                 }
                 Divider().overlay(SumiColor.ink)
 
@@ -132,7 +141,9 @@ struct TodayView: View {
                 SectionTitle("PRIORITY LEDGER")
                 ForEach(store.visibleOpportunities) { opportunity in
                     OpportunityRow(opportunity: opportunity)
+                        .sumiRowTransition()
                 }
+                .sumiCollectionMotion(store.visibleOpportunities.map(\.id))
 
                 SectionTitle("SOURCE HEALTH SUMMARY")
                 SourceHealthLedger(compact: true)
@@ -234,6 +245,7 @@ struct OpportunityRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .sumiHoverFeedback()
         .accessibilityLabel(
             "\(opportunity.title), \(opportunity.verification.rawValue), "
                 + "\(opportunity.items.count) sources"
@@ -350,6 +362,7 @@ struct RadarView: View {
                         ForEach(store.radarOpportunities) { OpportunityRow(opportunity: $0) }
                     }
                 }
+                .sumiCollectionMotion(store.radarOpportunities.map(\.id))
             }
         }
         .padding(30)
@@ -417,6 +430,8 @@ struct TopicsView: View {
                         }
                     }
                 }
+                .sumiStateMotion(result.state)
+                .sumiCollectionMotion(result.evidence.map(\.id))
             }
         }
         .padding(30)
@@ -563,6 +578,7 @@ struct CommentsView: View {
                         .overlay(alignment: .bottom) { Divider().overlay(SumiColor.rule) }
                     }
                 }
+                .sumiCollectionMotion(store.comments.map(\.id))
             }
         }
         .padding(30)
@@ -611,12 +627,16 @@ struct WatchlistsView: View {
                 .keyboardShortcut(.return, modifiers: [])
                 .disabled(newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
-            if let error = store.watchlistError {
-                Text(error)
-                    .font(SumiFont.body(13))
-                    .foregroundStyle(SumiColor.seal)
-                    .accessibilityLabel("Watchlist error: \(error)")
+            Group {
+                if let error = store.watchlistError {
+                    Text(error)
+                        .font(SumiFont.body(13))
+                        .foregroundStyle(SumiColor.seal)
+                        .accessibilityLabel("Watchlist error: \(error)")
+                        .transition(.opacity)
+                }
             }
+            .sumiStateMotion(store.watchlistError)
             Divider().overlay(SumiColor.ink)
 
             ScrollView(.horizontal) {
@@ -660,6 +680,7 @@ struct WatchlistsView: View {
                             )
                         }
                     }
+                    .sumiCollectionMotion(visibleEntries.map(\.id))
                 }
             }
 
@@ -674,6 +695,7 @@ struct WatchlistsView: View {
                     .tracking(1)
                     .foregroundStyle(SumiColor.mutedInk)
             }
+            .sumiStateMotion(store.watchlistSyncState)
         }
         .padding(30)
         .sumiPage()
@@ -715,6 +737,8 @@ private struct WatchlistFilterButton: View {
         .buttonStyle(.plain)
         .accessibilityLabel("\(title), \(count) entries")
         .accessibilityAddTraits(selected ? [.isSelected] : [])
+        .sumiStateMotion(selected)
+        .sumiHoverFeedback()
     }
 }
 
@@ -765,6 +789,7 @@ private struct WatchlistLedgerRow: View {
         .padding(.vertical, 13)
         .overlay(alignment: .bottom) { Divider().overlay(SumiColor.rule) }
         .accessibilityElement(children: .contain)
+        .sumiStateMotion(entry.highPriority)
     }
 }
 
@@ -842,6 +867,7 @@ struct NotificationsView: View {
                     text: store.notificationPermission.rawValue,
                     urgent: store.notificationPermission != .authorized
                 )
+                .sumiStateMotion(store.notificationPermission)
                 Button(
                     store.notificationPermission == .notDetermined
                         ? "Allow notifications"
@@ -893,6 +919,7 @@ struct NotificationsView: View {
                         .overlay(alignment: .bottom) { Divider().overlay(SumiColor.rule) }
                     }
                 }
+                .sumiCollectionMotion(store.notifications.map(\.id))
             }
         }
         .padding(30)
@@ -925,6 +952,7 @@ struct SettingsView: View {
                     .font(SumiFont.body())
                     .foregroundStyle(SumiColor.mutedInk)
                 }
+                .sumiStateMotion(reduceMotion)
                 Text("Command 1-7 opens each section. Command F focuses Live Radar search. Command R refreshes research.")
                     .font(SumiFont.body())
                     .foregroundStyle(SumiColor.mutedInk)
@@ -995,6 +1023,8 @@ struct SettingsView: View {
                 .padding(16)
                 .background(SumiColor.softPaper)
                 .overlay(Rectangle().stroke(SumiColor.rule, lineWidth: 1))
+                .sumiStateMotion(store.notificationsEnabled)
+                .sumiStateMotion(store.quietHoursEnabled)
                 SectionTitle("DISCORD CHANNEL")
                 VStack(alignment: .leading, spacing: 14) {
                     HStack {
@@ -1168,7 +1198,9 @@ struct SourceHealthLedger: View {
                 }
                 .padding(.vertical, 10)
                 .overlay(alignment: .bottom) { Divider().overlay(SumiColor.rule) }
+                .sumiStateMotion("\(health.state.rawValue)-\(health.dataTruth.rawValue)-\(health.evidence)")
             }
+            .sumiCollectionMotion(store.sourceHealth.map(\.id))
         }
         .sheet(item: $selectedProvider) { provider in
             ProviderConnectionSheet(provider: provider)
@@ -1227,7 +1259,9 @@ private struct ProviderConnectionsLedger: View {
                 }
                 .padding(.vertical, 10)
                 .overlay(alignment: .bottom) { Divider().overlay(SumiColor.rule) }
+                .sumiStateMotion("\(connection.state.rawValue)-\(connection.evidence)")
             }
+            .sumiCollectionMotion(store.providerConnections.map(\.id))
         }
         .sheet(item: $selectedProvider) { provider in
             ProviderConnectionSheet(provider: provider)
@@ -1269,6 +1303,7 @@ private struct ProviderConnectionSheet: View {
                         .font(SumiFont.body(12))
                         .foregroundStyle(SumiColor.mutedInk)
                 }
+                .sumiStateMotion("\(connection.state.rawValue)-\(connection.evidence)")
             }
             connectionDetails
             if definition.credentialBoundary == .keychain {
@@ -1360,6 +1395,7 @@ struct OpportunityDetailView: View {
                                 .font(SumiFont.meta(9))
                                 .foregroundStyle(opportunity.originalSource == nil ? SumiColor.sealDeep : SumiColor.healthy)
                         }
+                        .sumiStateMotion(opportunity.disposition)
                         Divider().overlay(SumiColor.ink)
                         Text(opportunity.brief)
                             .font(SumiFont.body(16))
@@ -1400,6 +1436,7 @@ struct OpportunityDetailView: View {
                             .padding(.vertical, 8)
                             .overlay(alignment: .bottom) { Divider().overlay(SumiColor.rule) }
                         }
+                        .sumiCollectionMotion(opportunity.items.map(\.id))
                         HStack {
                             Button("Save") { store.updateDisposition(.saved, id: opportunity.id) }
                                 .accessibilityLabel("Save opportunity")
@@ -1485,6 +1522,9 @@ struct FirstRunView: View {
                 .foregroundStyle(SumiColor.mutedInk)
             Divider().overlay(SumiColor.ink)
             stepContent
+                .id(step)
+                .transition(.opacity)
+                .sumiPageMotion(step)
             Spacer()
             HStack {
                 Text("STEP \(step + 1) OF 5")
