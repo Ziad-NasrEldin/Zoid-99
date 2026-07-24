@@ -66,10 +66,10 @@ final class SumiControlTests: XCTestCase {
         )
     }
 
-    func testRadarQuickActionsUseInlinePlacementWithoutChangingToday() {
-        XCTAssertEqual(OpportunityQuickActionPlacement.today, .trailingRail)
+    func testRadarQuickActionsUseInlinePlacementWithoutRegressingTodayRedesign() {
+        XCTAssertEqual(OpportunityQuickActionPlacement.today, .integratedTrailingRow)
         XCTAssertEqual(OpportunityQuickActionPlacement.radar, .inlineRow)
-        XCTAssertEqual(OpportunityQuickActionPlacement.inlineRow.minimumTargetSize, 34)
+        XCTAssertEqual(OpportunityQuickActionLayout.minimumTargetSize, 34)
     }
 
     func testQuickActionHierarchyDistinguishesRecoverableAndSuppressiveActions() {

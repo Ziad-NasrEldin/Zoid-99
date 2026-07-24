@@ -283,15 +283,6 @@ enum OpportunityQuickAction: String, CaseIterable, Identifiable {
         }
     }
 
-    var accessibilityHint: String {
-        switch self {
-        case .save: "Adds this opportunity to Saved"
-        case .watch: "Adds this opportunity to Watchlists, or opens Watchlists when selected"
-        case .dismiss: "Removes this opportunity from Today; it can be restored later"
-        case .mute: "Suppresses this topic from Today; it can be unmuted later"
-        }
-    }
-
     func accessibilityValue(selected: Bool) -> String {
         switch self {
         case .save: selected ? "Selected, saved" : "Not selected, not saved"
