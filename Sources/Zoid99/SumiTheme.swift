@@ -23,15 +23,41 @@ enum SumiFont {
 }
 
 struct SumiMotion {
-    static let pressDuration = 0.15
-    static let hoverDuration = 0.18
-    static let disclosureDuration = 0.16
-    static let standardDuration = 0.20
+    enum Duration {
+        static let press = 0.10
+        static let hover = 0.14
+        static let disclosure = 0.18
+        static let state = 0.20
+        static let page = 0.22
+        static let exit = 0.14
+        static let reduced = 0.08
+    }
+
+    enum Stagger {
+        static let step = 0.03
+        static let maximumDelay = 0.18
+    }
 
     let reduceMotion: Bool
     var pressScale: CGFloat { reduceMotion ? 1 : 0.98 }
-    var standardAnimation: Animation? { reduceMotion ? nil : .easeOut(duration: Self.standardDuration) }
-    var opacityAnimation: Animation { .easeOut(duration: Self.disclosureDuration) }
+    var spatialOffset: CGFloat { reduceMotion ? 0 : 7 }
+    var spatialAnimation: Animation? {
+        reduceMotion ? nil : .timingCurve(0.16, 1, 0.3, 1, duration: Duration.state)
+    }
+    var stateAnimation: Animation {
+        .timingCurve(0.16, 1, 0.3, 1, duration: reduceMotion ? Duration.reduced : Duration.state)
+    }
+    var opacityAnimation: Animation {
+        .easeOut(duration: reduceMotion ? Duration.reduced : Duration.disclosure)
+    }
+    var pageAnimation: Animation {
+        .timingCurve(0.16, 1, 0.3, 1, duration: reduceMotion ? Duration.reduced : Duration.page)
+    }
+
+    func staggerDelay(index: Int) -> Double {
+        guard !reduceMotion else { return 0 }
+        return min(Double(max(index, 0)) * Stagger.step, Stagger.maximumDelay)
+    }
 }
 
 struct SumiButtonStyle: ButtonStyle {
@@ -52,7 +78,10 @@ struct SumiButtonStyle: ButtonStyle {
             .overlay(Rectangle().stroke(urgent ? SumiColor.seal : SumiColor.ink, lineWidth: 1))
             .opacity(isEnabled ? 1 : 0.42)
             .scaleEffect(configuration.isPressed && !reduceMotion ? 0.98 : 1)
-            .animation(reduceMotion ? nil : .easeOut(duration: SumiMotion.pressDuration), value: configuration.isPressed)
+            .animation(
+                reduceMotion ? nil : .easeOut(duration: SumiMotion.Duration.press),
+                value: configuration.isPressed
+            )
     }
 }
 
@@ -65,13 +94,14 @@ struct SumiPressStyle: ButtonStyle {
             .opacity(isEnabled ? configuration.isPressed ? 0.72 : 1 : 0.42)
             .scaleEffect(configuration.isPressed && !reduceMotion ? 0.98 : 1)
             .animation(
-                reduceMotion ? nil : .easeOut(duration: SumiMotion.pressDuration),
+                reduceMotion ? nil : .easeOut(duration: SumiMotion.Duration.press),
                 value: configuration.isPressed
             )
     }
 }
 
 struct SumiCheckboxStyle: ToggleStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
@@ -88,6 +118,7 @@ struct SumiCheckboxStyle: ToggleStyle {
                         Image(systemName: "checkmark")
                             .font(.system(size: 9, weight: .bold))
                             .foregroundStyle(SumiColor.paper)
+                            .transition(.opacity)
                     }
                 }
                 .frame(width: 15, height: 15)
@@ -96,6 +127,7 @@ struct SumiCheckboxStyle: ToggleStyle {
             }
             .contentShape(Rectangle())
             .opacity(isEnabled ? 1 : 0.42)
+            .animation(SumiMotion(reduceMotion: reduceMotion).stateAnimation, value: configuration.isOn)
         }
         .buttonStyle(SumiPressStyle())
         .accessibilityValue(configuration.isOn ? "On" : "Off")
@@ -103,6 +135,9 @@ struct SumiCheckboxStyle: ToggleStyle {
 }
 
 struct SumiFieldModifier: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isHovering = false
+
     func body(content: Content) -> some View {
         content
             .textFieldStyle(.plain)
@@ -110,7 +145,12 @@ struct SumiFieldModifier: ViewModifier {
             .padding(.horizontal, 10)
             .frame(minHeight: 34)
             .background(SumiColor.paper)
-            .overlay(Rectangle().stroke(SumiColor.ink, lineWidth: 1))
+            .overlay(Rectangle().stroke(isHovering ? SumiColor.sealDeep : SumiColor.ink, lineWidth: 1))
+            .onHover { isHovering = $0 }
+            .animation(
+                .easeOut(duration: reduceMotion ? SumiMotion.Duration.reduced : SumiMotion.Duration.hover),
+                value: isHovering
+            )
     }
 }
 
@@ -132,6 +172,7 @@ enum SumiSelectionCursor {
 }
 
 struct SumiSelect<Value: Hashable>: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let title: String
     @Binding var selection: Value
     let options: [SumiSelectOption<Value>]
@@ -159,6 +200,7 @@ struct SumiSelect<Value: Hashable>: View {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 8, weight: .semibold))
                         .rotationEffect(.degrees(isOpen ? 180 : 0))
+                        .animation(SumiMotion(reduceMotion: reduceMotion).stateAnimation, value: isOpen)
                 }
                 .padding(.horizontal, 10)
                 .frame(width: width, alignment: .leading)
@@ -210,11 +252,20 @@ struct SumiSelect<Value: Hashable>: View {
                 .overlay(Rectangle().stroke(SumiColor.ink, lineWidth: 1))
                 .shadow(color: SumiColor.ink.opacity(0.16), radius: 8, x: 0, y: 5)
                 .offset(y: 38)
+                .transition(
+                    .asymmetric(
+                        insertion: .opacity.combined(
+                            with: .offset(y: SumiMotion(reduceMotion: reduceMotion).spatialOffset)
+                        ),
+                        removal: .opacity
+                    )
+                )
                 .zIndex(100)
             }
         }
         .fixedSize(horizontal: width != nil, vertical: true)
         .zIndex(isOpen ? 100 : 0)
+        .animation(SumiMotion(reduceMotion: reduceMotion).opacityAnimation, value: isOpen)
         .onMoveCommand { direction in
             guard isOpen else { return }
             focusedIndex = SumiSelectionCursor.movedIndex(
@@ -316,6 +367,7 @@ struct StateLabel: View {
             .background(urgent ? SumiColor.sealWash : SumiColor.mist)
             .overlay(Rectangle().stroke(urgent ? SumiColor.seal : SumiColor.rule, lineWidth: 1))
             .accessibilityLabel("State: \(text)")
+            .sumiStateMotion("\(text)-\(urgent)")
     }
 }
 
@@ -340,6 +392,66 @@ struct LedgerHeader: View {
     }
 }
 
+private struct SumiStateMotionModifier<Value: Equatable>: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let value: Value
+
+    func body(content: Content) -> some View {
+        content
+            .contentTransition(.opacity)
+            .animation(SumiMotion(reduceMotion: reduceMotion).stateAnimation, value: value)
+    }
+}
+
+private struct SumiCollectionMotionModifier<ID: Hashable>: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let ids: [ID]
+
+    func body(content: Content) -> some View {
+        content
+            .animation(SumiMotion(reduceMotion: reduceMotion).spatialAnimation, value: ids)
+    }
+}
+
+private struct SumiPageMotionModifier<Value: Equatable>: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let value: Value
+
+    func body(content: Content) -> some View {
+        content
+            .contentTransition(.opacity)
+            .animation(SumiMotion(reduceMotion: reduceMotion).pageAnimation, value: value)
+    }
+}
+
+private struct SumiRowTransitionModifier: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content.transition(
+            reduceMotion
+                ? .opacity
+                : .opacity.combined(with: .offset(y: SumiMotion(reduceMotion: false).spatialOffset))
+        )
+    }
+}
+
+private struct SumiHoverFeedbackModifier: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isHovering = false
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(isHovering ? 0.9 : 1)
+            .offset(y: isHovering && !reduceMotion ? -1 : 0)
+            .onHover { isHovering = $0 }
+            .animation(
+                .easeOut(duration: reduceMotion ? SumiMotion.Duration.reduced : SumiMotion.Duration.hover),
+                value: isHovering
+            )
+    }
+}
+
 extension View {
     func sumiField() -> some View {
         modifier(SumiFieldModifier())
@@ -352,5 +464,25 @@ extension View {
             .foregroundStyle(SumiColor.ink)
             .tint(SumiColor.sealDeep)
             .toggleStyle(SumiCheckboxStyle())
+    }
+
+    func sumiStateMotion<Value: Equatable>(_ value: Value) -> some View {
+        modifier(SumiStateMotionModifier(value: value))
+    }
+
+    func sumiCollectionMotion<ID: Hashable>(_ ids: [ID]) -> some View {
+        modifier(SumiCollectionMotionModifier(ids: ids))
+    }
+
+    func sumiPageMotion<Value: Equatable>(_ value: Value) -> some View {
+        modifier(SumiPageMotionModifier(value: value))
+    }
+
+    func sumiRowTransition() -> some View {
+        modifier(SumiRowTransitionModifier())
+    }
+
+    func sumiHoverFeedback() -> some View {
+        modifier(SumiHoverFeedbackModifier())
     }
 }
