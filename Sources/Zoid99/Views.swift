@@ -1359,24 +1359,16 @@ struct SettingsView: View {
                         .buttonStyle(SumiButtonStyle())
                     }
                     Divider().overlay(SumiColor.rule)
-                    Toggle(
-                        "Quiet hours",
-                        isOn: Binding(
-                            get: { store.quietHoursEnabled },
-                            set: store.setQuietHoursEnabled
-                        )
-                    )
                     HStack {
-                        SumiStepper(
-                            title: "Start \(hourLabel(store.quietStartHour))",
-                            decrement: { store.setQuietStartHour(max(0, store.quietStartHour - 1)) },
-                            increment: { store.setQuietStartHour(min(23, store.quietStartHour + 1)) }
-                        )
-                        SumiStepper(
-                            title: "End \(hourLabel(store.quietEndHour))",
-                            decrement: { store.setQuietEndHour(max(0, store.quietEndHour - 1)) },
-                            increment: { store.setQuietEndHour(min(23, store.quietEndHour + 1)) }
-                        )
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("24/7 DELIVERY")
+                                .font(SumiFont.meta())
+                                .foregroundStyle(SumiColor.ink)
+                            Text("Eligible alerts can be delivered at any hour while Zoid 99 is running.")
+                                .font(SumiFont.body())
+                                .foregroundStyle(SumiColor.mutedInk)
+                        }
+                        Spacer()
                         SumiStepper(
                             title: "Digest \(hourLabel(store.digestHour))",
                             decrement: { store.setDigestHour(max(0, store.digestHour - 1)) },
@@ -1384,7 +1376,7 @@ struct SettingsView: View {
                         )
                     }
                     .disabled(!store.notificationsEnabled)
-                    Text("Confirmed high-priority opportunities alert immediately outside quiet hours. Lower-priority opportunities are grouped into the next daily digest.")
+                    Text("Confirmed high-priority opportunities alert immediately. Lower-priority opportunities are grouped into the next daily digest. macOS permission, Focus modes, system availability, and Discord availability still apply.")
                         .font(SumiFont.body())
                         .foregroundStyle(SumiColor.mutedInk)
                 }
@@ -1392,7 +1384,6 @@ struct SettingsView: View {
                 .background(SumiColor.softPaper)
                 .overlay(Rectangle().stroke(SumiColor.rule, lineWidth: 1))
                 .sumiStateMotion(store.notificationsEnabled)
-                .sumiStateMotion(store.quietHoursEnabled)
                 SectionTitle("OPPORTUNITY ACTIONS")
                 OpportunityActionManagement()
                 SectionTitle("DISCORD CHANNEL")
@@ -1458,7 +1449,7 @@ struct SettingsView: View {
                     Text("Discord receives only new, confirmed high-priority research opportunities. Messages include the title, score, source, reason, and a public HTTPS source link when available. Credentials, diagnostics, and browsing history are never included.")
                         .font(SumiFont.body())
                         .foregroundStyle(SumiColor.mutedInk)
-                    Text("Delivery is direct from this Mac. Rate-limit retries are capped at three attempts and 30 seconds. Alerts are recorded locally to prevent repeats after refresh or relaunch.")
+                    Text("Discord is independently eligible 24/7 while Zoid 99 is running, even when native alerts are off. Discord availability and rate limits still apply. Retries are capped at three attempts and 30 seconds. Alerts are recorded locally to prevent repeats after refresh or relaunch.")
                         .font(SumiFont.body())
                         .foregroundStyle(SumiColor.mutedInk)
                 }

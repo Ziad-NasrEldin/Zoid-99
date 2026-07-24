@@ -27,9 +27,6 @@ final class AppStore: ObservableObject {
     @Published var refreshMinutes = 15
     @Published var notificationsEnabled = false
     @Published var notificationPermission: NotificationPermissionState = .notDetermined
-    @Published var quietHoursEnabled = true
-    @Published var quietStartHour = 22
-    @Published var quietEndHour = 8
     @Published var digestHour = 18
     @Published var discordEnabled = false
     @Published var discordHighPriorityEnabled = true
@@ -112,6 +109,7 @@ final class AppStore: ObservableObject {
         guard scheduledRefreshTask == nil else { return }
         scheduledRefreshTask = Task { [weak self] in
             guard let self else { return }
+            await self.processNotifications(self.notifications)
             await self.refresh()
             while !Task.isCancelled {
                 let interval = UInt64(self.refreshMinutes) * 60
@@ -741,24 +739,6 @@ final class AppStore: ObservableObject {
         persistReportingFailure()
     }
 
-    func setQuietHoursEnabled(_ enabled: Bool) {
-        quietHoursEnabled = enabled
-        settings.quietHoursEnabled = enabled
-        persistReportingFailure()
-    }
-
-    func setQuietStartHour(_ hour: Int) {
-        quietStartHour = min(23, max(0, hour))
-        settings.quietStartHour = quietStartHour
-        persistReportingFailure()
-    }
-
-    func setQuietEndHour(_ hour: Int) {
-        quietEndHour = min(23, max(0, hour))
-        settings.quietEndHour = quietEndHour
-        persistReportingFailure()
-    }
-
     func setDigestHour(_ hour: Int) {
         digestHour = min(23, max(0, hour))
         settings.digestHour = digestHour
@@ -910,7 +890,7 @@ final class AppStore: ObservableObject {
                 sourceItems: cluster.sourceItems.map(markingLiveAsCached)
             )
         }
-        notifications = stored.notificationHistory
+        notifications = NotificationCoordinator.migratingLegacyQuietHours(stored.notificationHistory)
         sourceHealth = stored.sourceHealth.map {
             var health = $0
             if health.dataTruth == .live { health.dataTruth = .cached }
@@ -990,9 +970,6 @@ final class AppStore: ObservableObject {
     private func applyNotificationSettings() {
         notificationsEnabled = settings.notificationsEnabled
         notificationPermission = settings.notificationPermission
-        quietHoursEnabled = settings.quietHoursEnabled
-        quietStartHour = settings.quietStartHour
-        quietEndHour = settings.quietEndHour
         digestHour = settings.digestHour
         discordEnabled = settings.discordEnabled
         discordHighPriorityEnabled = settings.discordHighPriorityEnabled
@@ -1237,9 +1214,6 @@ final class AppStore: ObservableObject {
         settings.refreshMinutes = refreshMinutes
         settings.notificationsEnabled = notificationsEnabled
         settings.notificationPermission = notificationPermission
-        settings.quietHoursEnabled = quietHoursEnabled
-        settings.quietStartHour = quietStartHour
-        settings.quietEndHour = quietEndHour
         settings.digestHour = digestHour
         settings.discordEnabled = discordEnabled
         settings.discordHighPriorityEnabled = discordHighPriorityEnabled

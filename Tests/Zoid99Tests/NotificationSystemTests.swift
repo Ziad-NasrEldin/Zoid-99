@@ -61,18 +61,15 @@ final class NotificationSystemTests: XCTestCase {
         XCTAssertEqual(result.records.map(\.deliveryState), [.scheduled, .scheduled])
     }
 
-    func testQuietHoursDefersImmediateAlertUntilQuietHoursEnd() async {
+    func testLegacyQuietHoursCannotDeferImmediateAlertOvernight() async {
         let delivery = RecordingNotificationDelivery(permission: .authorized)
         let coordinator = NotificationCoordinator(delivery: delivery)
         let now = date(2027, 1, 15, 23)
         var settings = AppSettings.defaults
         settings.notificationsEnabled = true
         settings.notificationPermission = .authorized
-        settings.quietHoursEnabled = true
-        settings.quietStartHour = 22
-        settings.quietEndHour = 8
 
-        _ = await coordinator.process(
+        let result = await coordinator.process(
             candidates: [record("Urgent research", delivery: .immediate, suffix: 3, now: now)],
             existing: [],
             settings: settings,
@@ -80,7 +77,52 @@ final class NotificationSystemTests: XCTestCase {
             calendar: utcCalendar
         )
 
-        XCTAssertEqual(delivery.requests[0].scheduledAt, date(2027, 1, 16, 8))
+        XCTAssertEqual(delivery.requests[0].scheduledAt, now)
+        XCTAssertEqual(result.records[0].scheduledAt, now)
+        XCTAssertEqual(result.records[0].statusDetail, "Scheduled with macOS.")
+    }
+
+    func testLegacyQuietHoursSettingsDecodeWithoutPersistingSuppressionPolicy() throws {
+        let legacy = """
+        {
+          "setupComplete": true,
+          "refreshMinutes": 15,
+          "notificationPermissionRequested": true,
+          "notificationsEnabled": true,
+          "notificationPermission": "Allowed",
+          "quietHoursEnabled": true,
+          "quietStartHour": 22,
+          "quietEndHour": 8,
+          "digestHour": 18,
+          "discordEnabled": true,
+          "discordHighPriorityEnabled": true,
+          "discordDeliveredOpportunityIDs": []
+        }
+        """
+
+        let settings = try JSONDecoder().decode(AppSettings.self, from: Data(legacy.utf8))
+        let encoded = try JSONEncoder().encode(settings)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+
+        XCTAssertTrue(settings.notificationsEnabled)
+        XCTAssertTrue(settings.discordEnabled)
+        XCTAssertNil(object["quietHoursEnabled"])
+        XCTAssertNil(object["quietStartHour"])
+        XCTAssertNil(object["quietEndHour"])
+    }
+
+    func testLegacyDeferredRecordIsMadeEligibleForImmediateRescheduling() {
+        let now = date(2027, 1, 15, 23)
+        var legacy = record("Urgent research", delivery: .immediate, suffix: 9, now: now)
+        legacy.deliveryState = .scheduled
+        legacy.scheduledAt = date(2027, 1, 16, 8)
+        legacy.statusDetail = "Deferred until quiet hours end."
+
+        let migrated = NotificationCoordinator.migratingLegacyQuietHours([legacy])
+
+        XCTAssertEqual(migrated[0].deliveryState, .awaitingPermission)
+        XCTAssertNil(migrated[0].scheduledAt)
+        XCTAssertEqual(migrated[0].statusDetail, "Eligible for immediate 24/7 delivery.")
     }
 
     func testDeniedPermissionCreatesTruthfulDurableFailureWithoutScheduling() async {
