@@ -207,6 +207,59 @@ struct TodayView: View {
     }
 }
 
+enum OpportunityQuickAction: String, CaseIterable, Identifiable {
+    case save
+    case watch
+    case dismiss
+    case mute
+
+    var id: Self { self }
+
+    var symbolName: String {
+        switch self {
+        case .save: "bookmark"
+        case .watch: "eye"
+        case .dismiss: "xmark"
+        case .mute: "speaker.slash"
+        }
+    }
+
+    var selectedSymbolName: String {
+        switch self {
+        case .save: "bookmark.fill"
+        case .watch: "eye.fill"
+        case .dismiss: "xmark"
+        case .mute: "speaker.slash.fill"
+        }
+    }
+
+    var accessibilityLabel: String {
+        switch self {
+        case .save: "Save opportunity"
+        case .watch: "Watch opportunity"
+        case .dismiss: "Dismiss opportunity"
+        case .mute: "Mute opportunity"
+        }
+    }
+
+    var helpText: String {
+        switch self {
+        case .save: "Save this opportunity"
+        case .watch: "Watch this opportunity for updates"
+        case .dismiss: "Dismiss this opportunity from Today"
+        case .mute: "Mute this opportunity from Today"
+        }
+    }
+
+    func isSelected(isSaved: Bool, isWatched: Bool) -> Bool {
+        switch self {
+        case .save: isSaved
+        case .watch: isWatched
+        case .dismiss, .mute: false
+        }
+    }
+}
+
 private struct Metric: View {
     let value: String
     let label: String
@@ -250,60 +303,37 @@ struct OpportunityRow: View {
     }
 
     var body: some View {
-        Button {
-            store.selectedOpportunityID = opportunity.id
-        } label: {
-            HStack(alignment: .top, spacing: 16) {
-                Rectangle()
-                    .fill(opportunity.isHighPriority ? SumiColor.seal : SumiColor.ink)
-                    .frame(width: 2)
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        StateLabel(text: opportunity.verification.rawValue, urgent: opportunity.verification != .confirmed)
-                        StateLabel(text: opportunity.dataTruth.rawValue, urgent: opportunity.dataTruth.isAttentionRequired)
-                        if opportunity.isHighPriority { StateLabel(text: "High priority", urgent: true) }
-                        Spacer()
-                        Text(opportunity.earliestPublishedAt, style: .relative)
-                            .font(SumiFont.meta(10))
-                            .foregroundStyle(SumiColor.mutedInk)
-                    }
-                    Text(opportunity.title)
-                        .font(SumiFont.display(20))
-                        .environment(\.layoutDirection, textDirection)
-                        .frame(
-                            maxWidth: .infinity,
-                            alignment: textDirection == .rightToLeft ? .trailing : .leading
+        ZStack(alignment: .trailing) {
+            Button {
+                store.selectedOpportunityID = opportunity.id
+            } label: {
+                rowContent
+                    .padding(.trailing, 48)
+            }
+            .buttonStyle(.plain)
+            .sumiHoverFeedback()
+            .accessibilityLabel(
+                "\(opportunity.title), \(opportunity.verification.rawValue), "
+                    + "\(opportunity.items.count) sources"
+            )
+            .accessibilityHint("Open the evidence and opportunity actions")
+
+            VStack(spacing: 4) {
+                ForEach(OpportunityQuickAction.allCases) { action in
+                    OpportunityQuickActionButton(
+                        action: action,
+                        selected: action.isSelected(
+                            isSaved: store.isOpportunitySaved(opportunity.id),
+                            isWatched: store.isOpportunityWatched(opportunity.id)
                         )
-                    Text(opportunity.brief)
-                        .font(SumiFont.body())
-                        .foregroundStyle(SumiColor.mutedInk)
-                        .lineLimit(2)
-                        .environment(\.layoutDirection, textDirection)
-                        .frame(
-                            maxWidth: .infinity,
-                            alignment: textDirection == .rightToLeft ? .trailing : .leading
-                        )
-                    HStack(spacing: 14) {
-                        Text("SCORE \(opportunity.score.total)")
-                        Text("\(opportunity.items.count) SOURCES")
-                        Text(opportunity.coverageExplanation)
-                            .lineLimit(1)
+                    ) {
+                        perform(action)
                     }
-                    .font(SumiFont.meta(9))
-                    .tracking(0.8)
-                    .foregroundStyle(SumiColor.mutedInk)
                 }
             }
-            .padding(.vertical, 14)
-            .contentShape(Rectangle())
+            .padding(.trailing, 2)
+            .environment(\.layoutDirection, .leftToRight)
         }
-        .buttonStyle(.plain)
-        .sumiHoverFeedback()
-        .accessibilityLabel(
-            "\(opportunity.title), \(opportunity.verification.rawValue), "
-                + "\(opportunity.items.count) sources"
-        )
-        .accessibilityHint("Open the evidence and opportunity actions")
         .overlay(alignment: .bottom) { Divider().overlay(SumiColor.rule) }
         .sheet(isPresented: Binding(
             get: { store.selectedOpportunityID == opportunity.id },
@@ -311,6 +341,95 @@ struct OpportunityRow: View {
         )) {
             OpportunityDetailView(opportunityID: opportunity.id)
         }
+    }
+
+    private func perform(_ action: OpportunityQuickAction) {
+        switch action {
+        case .save:
+            _ = store.toggleSavedOpportunity(id: opportunity.id)
+        case .watch:
+            if store.isOpportunityWatched(opportunity.id) {
+                store.selectedDestination = .watchlists
+            } else {
+                _ = store.watchOpportunity(id: opportunity.id)
+            }
+        case .dismiss:
+            _ = store.dismissOpportunity(id: opportunity.id)
+        case .mute:
+            _ = store.muteOpportunityTopic(id: opportunity.id)
+        }
+    }
+
+    private var rowContent: some View {
+        HStack(alignment: .top, spacing: 16) {
+            Rectangle()
+                .fill(opportunity.isHighPriority ? SumiColor.seal : SumiColor.ink)
+                .frame(width: 2)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    StateLabel(text: opportunity.verification.rawValue, urgent: opportunity.verification != .confirmed)
+                    StateLabel(text: opportunity.dataTruth.rawValue, urgent: opportunity.dataTruth.isAttentionRequired)
+                    if opportunity.isHighPriority { StateLabel(text: "High priority", urgent: true) }
+                    Spacer()
+                    Text(opportunity.earliestPublishedAt, style: .relative)
+                        .font(SumiFont.meta(10))
+                        .foregroundStyle(SumiColor.mutedInk)
+                }
+                Text(opportunity.title)
+                    .font(SumiFont.display(20))
+                    .environment(\.layoutDirection, textDirection)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: textDirection == .rightToLeft ? .trailing : .leading
+                    )
+                Text(opportunity.brief)
+                    .font(SumiFont.body())
+                    .foregroundStyle(SumiColor.mutedInk)
+                    .lineLimit(2)
+                    .environment(\.layoutDirection, textDirection)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: textDirection == .rightToLeft ? .trailing : .leading
+                    )
+                HStack(spacing: 14) {
+                    Text("SCORE \(opportunity.score.total)")
+                    Text("\(opportunity.items.count) SOURCES")
+                    Text(opportunity.coverageExplanation)
+                        .lineLimit(1)
+                }
+                .font(SumiFont.meta(9))
+                .tracking(0.8)
+                .foregroundStyle(SumiColor.mutedInk)
+            }
+        }
+        .padding(.vertical, 14)
+        .contentShape(Rectangle())
+    }
+}
+
+private struct OpportunityQuickActionButton: View {
+    let action: OpportunityQuickAction
+    let selected: Bool
+    let perform: () -> Void
+    @State private var hovered = false
+
+    var body: some View {
+        Button(action: perform) {
+            Image(systemName: selected ? action.selectedSymbolName : action.symbolName)
+                .font(.system(size: 12, weight: .semibold))
+                .frame(width: 34, height: 34)
+                .foregroundStyle(selected ? SumiColor.paper : SumiColor.ink)
+                .background(selected ? SumiColor.ink : hovered ? SumiColor.mist : SumiColor.paper)
+                .overlay(Rectangle().stroke(selected ? SumiColor.ink : SumiColor.rule, lineWidth: 1))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(SumiPressStyle())
+        .disabled(selected)
+        .accessibilityLabel(action.accessibilityLabel)
+        .accessibilityValue(selected ? "Selected" : "Not selected")
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
+        .help(action.helpText)
+        .onHover { hovered = $0 }
     }
 }
 
