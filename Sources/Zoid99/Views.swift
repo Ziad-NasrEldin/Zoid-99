@@ -119,7 +119,7 @@ struct SavedView: View {
                     } else {
                         ForEach(results) { opportunity in
                             VStack(alignment: .trailing, spacing: 0) {
-                                OpportunityRow(opportunity: opportunity)
+                                OpportunityRow(opportunity: opportunity, showsQuickActions: false)
                                 Button("Remove from Saved") {
                                     _ = store.toggleSavedOpportunity(id: opportunity.id)
                                 }
@@ -194,7 +194,7 @@ struct TodayView: View {
 
                 SectionTitle("PRIORITY LEDGER")
                 ForEach(store.visibleOpportunities) { opportunity in
-                    OpportunityRow(opportunity: opportunity)
+                    OpportunityRow(opportunity: opportunity, showsQuickActions: true)
                         .sumiRowTransition()
                 }
                 .sumiCollectionMotion(store.visibleOpportunities.map(\.id))
@@ -295,6 +295,7 @@ private struct SectionTitle: View {
 struct OpportunityRow: View {
     @EnvironmentObject private var store: AppStore
     let opportunity: Opportunity
+    let showsQuickActions: Bool
 
     private var textDirection: LayoutDirection {
         ResearchTextDirection.resolve(
@@ -309,7 +310,7 @@ struct OpportunityRow: View {
                 store.selectedOpportunityID = opportunity.id
             } label: {
                 rowContent
-                    .padding(.trailing, 48)
+                    .padding(.trailing, showsQuickActions ? 48 : 0)
             }
             .buttonStyle(.plain)
             .sumiHoverFeedback()
@@ -319,21 +320,23 @@ struct OpportunityRow: View {
             )
             .accessibilityHint("Open the evidence and opportunity actions")
 
-            VStack(spacing: 4) {
-                ForEach(OpportunityQuickAction.allCases) { action in
-                    OpportunityQuickActionButton(
-                        action: action,
-                        selected: action.isSelected(
-                            isSaved: store.isOpportunitySaved(opportunity.id),
-                            isWatched: store.isOpportunityWatched(opportunity.id)
-                        )
-                    ) {
-                        perform(action)
+            if showsQuickActions {
+                VStack(spacing: 4) {
+                    ForEach(OpportunityQuickAction.allCases) { action in
+                        OpportunityQuickActionButton(
+                            action: action,
+                            selected: action.isSelected(
+                                isSaved: store.isOpportunitySaved(opportunity.id),
+                                isWatched: store.isOpportunityWatched(opportunity.id)
+                            )
+                        ) {
+                            perform(action)
+                        }
                     }
                 }
+                .padding(.trailing, 2)
+                .environment(\.layoutDirection, .leftToRight)
             }
-            .padding(.trailing, 2)
-            .environment(\.layoutDirection, .leftToRight)
         }
         .overlay(alignment: .bottom) { Divider().overlay(SumiColor.rule) }
         .sheet(isPresented: Binding(
@@ -425,7 +428,6 @@ private struct OpportunityQuickActionButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(SumiPressStyle())
-        .disabled(selected)
         .accessibilityLabel(action.accessibilityLabel)
         .accessibilityValue(selected ? "Selected" : "Not selected")
         .accessibilityAddTraits(selected ? [.isSelected] : [])
@@ -535,7 +537,9 @@ struct RadarView: View {
                                 : "No collected evidence matches every selected filter."
                         )
                     } else {
-                        ForEach(store.radarOpportunities) { OpportunityRow(opportunity: $0) }
+                        ForEach(store.radarOpportunities) {
+                            OpportunityRow(opportunity: $0, showsQuickActions: false)
+                        }
                     }
                 }
                 .sumiCollectionMotion(store.radarOpportunities.map(\.id))
@@ -584,7 +588,9 @@ struct TopicsView: View {
                         }
                         if !result.opportunities.isEmpty {
                             SectionTitle("RELATED OPPORTUNITIES")
-                            ForEach(result.opportunities) { OpportunityRow(opportunity: $0) }
+                    ForEach(result.opportunities) {
+                        OpportunityRow(opportunity: $0, showsQuickActions: false)
+                    }
                         }
                     }
                 }
