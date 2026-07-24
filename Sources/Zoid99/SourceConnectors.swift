@@ -42,6 +42,11 @@ protocol ProductionSourceConnector: Sendable {
     func collect() async -> ConnectorCollection
 }
 
+struct GroupedSourceConnector: Sendable {
+    let group: SourceGroup
+    let connector: any ProductionSourceConnector
+}
+
 struct HTTPRequest: Equatable, Sendable {
     let url: URL
     var method = "GET"

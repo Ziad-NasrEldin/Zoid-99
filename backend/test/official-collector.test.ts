@@ -61,10 +61,33 @@ test("the server collector records truthful health and fails the cycle when ever
       }],
       fetchImplementation: async () => new Response("", { status: 503 }),
     }),
-    /No official-source items/,
+    /No official sources responded/,
   );
   const health = repository.sourceHealth.find((entry) => entry.group === "US & Official");
   assert.equal(health?.state, "Unavailable");
   assert.equal(health?.dataTruth, "Unavailable");
   assert.match(health?.evidence ?? "", /No official-source items/);
+});
+
+test("a healthy official feed with zero records stays connected and does not fail the cycle", async () => {
+  const repository = new MemoryRepository();
+  const result = await collectOfficialSources({
+    repository,
+    now: () => new Date("2026-07-24T09:00:00.000Z"),
+    catalog: [{
+      id: "empty-official",
+      name: "Empty Official",
+      kind: "rss",
+      endpoint: "https://example.test/feed.xml",
+      homepage: "https://example.test/",
+    }],
+    fetchImplementation: async () => new Response("<rss><channel></channel></rss>", { status: 200 }),
+  });
+
+  assert.equal(result.successful, 1);
+  assert.equal(result.accepted, 0);
+  const health = repository.sourceHealth.find((entry) => entry.group === "US & Official");
+  assert.equal(health?.state, "Connected");
+  assert.equal(health?.dataTruth, "Live");
+  assert.match(health?.evidence ?? "", /0 items collected/);
 });

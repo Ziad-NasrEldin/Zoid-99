@@ -2,23 +2,23 @@
 set -euo pipefail
 
 project_root=${0:A:h:h}
-version=${ZOID99_VERSION:-0.1.0}
-build_number=${ZOID99_BUILD_NUMBER:-1}
+version=${ZOID99_VERSION:-0.2.0}
+build_number=${ZOID99_BUILD_NUMBER:-2}
 output_root=${ZOID99_OUTPUT_DIR:-"$project_root/.build/release-artifacts"}
 source_date_epoch=${SOURCE_DATE_EPOCH:-1767225600}
 app_path="$output_root/Zoid 99.app"
 zip_path="$output_root/Zoid-99-$version-unsigned.zip"
 iconset_path="$output_root/AppIcon.iconset"
 
-if [[ ! "$version" =~ '^[0-9]+(\.[0-9]+){1,2}$' ]]; then
+if [[ ! "$version" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]; then
     print -u2 "ZOID99_VERSION must contain two or three numeric components."
     exit 64
 fi
-if [[ ! "$build_number" =~ '^[1-9][0-9]*$' ]]; then
+if [[ ! "$build_number" =~ ^[1-9][0-9]*$ ]]; then
     print -u2 "ZOID99_BUILD_NUMBER must be a positive integer."
     exit 64
 fi
-if [[ ! "$source_date_epoch" =~ '^[0-9]+$' ]]; then
+if [[ ! "$source_date_epoch" =~ ^[0-9]+$ ]]; then
     print -u2 "SOURCE_DATE_EPOCH must be a non-negative integer."
     exit 64
 fi

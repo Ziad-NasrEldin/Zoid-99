@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: ready-for-human
 
 # Add source repair and reconnection workflows
 
@@ -8,3 +8,5 @@ Do not erase the last known evidence during a failed refresh.
 
 Implementation evidence: all required written repair states, state-specific actions, retained activity and evidence, reconnect and disconnect workflows, and fixture tests are included in the issue 002/006 delivery commit.
 Native visual acceptance and credentialed provider checks remain human/live gates.
+Release 0.2.0 native proof confirms the six-source ledger, last refresh truth, retained cached evidence, and available refresh or repair actions.
+Credentialed provider repair remains external because no provider credentials were available.

@@ -78,7 +78,8 @@ struct JSONResearchPersistence: ResearchPersistence, Sendable {
             notificationHistory: document.notificationHistory,
             sourceHealth: document.sourceHealth,
             sourceHealthHistory: [],
-            lastSuccessfulSyncAt: nil
+            lastSuccessfulSyncAt: nil,
+            watchlistNeedsSync: !document.watchlist.isEmpty
         )
     }
 }

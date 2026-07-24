@@ -11,11 +11,16 @@ const dispositionMutationSchema = z.object({
   changedAt: z.iso.datetime({ offset: true }),
   mutationID: z.string().uuid(),
 }).strict();
-const watchlistSchema = z.object({
-  kind: z.enum(["Creator", "Official source", "Keyword", "Topic", "Country", "Language"]),
+const watchlistFields = {
+  kind: z.enum(["Creator", "Official source", "Company", "Keyword", "Topic", "Country", "Language"]),
   value: z.string().trim().min(1).max(500),
   highPriority: z.boolean(),
-}).strict();
+};
+const watchlistSchema = z.object(watchlistFields).strict().superRefine(validateOfficialSource);
+const persistedWatchlistSchema = z.object({
+  id: z.string().uuid(),
+  ...watchlistFields,
+}).strict().superRefine(validateOfficialSource);
 const serverProviderSchema = z.enum(serverProviders);
 const providerCredentialSchema = z.object({
   credential: z.string().trim().min(1).max(16_384),
@@ -150,6 +155,33 @@ export function buildApi(options: {
     const created = await options.repository.createWatchlist(body.data as Omit<WatchlistEntry, "id">);
     return reply.code(201).send(created);
   });
+  app.patch("/v1/watchlist/:id", async (request, reply) => {
+    const params = uuidParams(request.params);
+    const body = watchlistSchema.safeParse(request.body);
+    if (!params.success) return invalidRequest(reply, params.error.issues);
+    if (!body.success) return invalidRequest(reply, body.error.issues);
+    const updated = await options.repository.updateWatchlist(
+      params.data.id,
+      body.data as Omit<WatchlistEntry, "id">,
+    );
+    return updated ?? reply.code(404).send({ error: "not_found", message: "Watchlist entry not found" });
+  });
+  app.put("/v1/watchlist", async (request, reply) => {
+    const body = z.object({
+      entries: z.array(persistedWatchlistSchema).max(2_000),
+    }).strict().safeParse(request.body);
+    if (!body.success) return invalidRequest(reply, body.error.issues);
+    const keys = body.data.entries.map(
+      (entry) => `${entry.kind}:${entry.value.toLocaleLowerCase()}`,
+    );
+    if (new Set(keys).size !== keys.length) {
+      return reply.code(409).send({
+        error: "conflict",
+        message: "The watchlist contains duplicate entries",
+      });
+    }
+    return options.repository.replaceWatchlist(body.data.entries as WatchlistEntry[]);
+  });
   app.delete("/v1/watchlist/:id", async (request, reply) => {
     const params = uuidParams(request.params);
     if (!params.success) return invalidRequest(reply, params.error.issues);
@@ -184,6 +216,23 @@ export function buildApi(options: {
     return reply.code(500).send({ error: "internal_error", message: "The request could not be completed" });
   });
   return app;
+}
+
+function validateOfficialSource(
+  entry: { kind: string; value: string },
+  context: z.RefinementCtx,
+): void {
+  if (entry.kind !== "Official source") return;
+  try {
+    const url = new URL(entry.value);
+    if (url.protocol !== "https:" || !url.hostname) throw new Error("invalid");
+  } catch {
+    context.addIssue({
+      code: "custom",
+      path: ["value"],
+      message: "Official sources must use a complete HTTPS URL",
+    });
+  }
 }
 
 const sourceHealthSchema = z.object({

@@ -88,7 +88,7 @@ export interface Opportunity {
 
 export interface WatchlistEntry {
   id: string;
-  kind: "Creator" | "Official source" | "Keyword" | "Topic" | "Country" | "Language";
+  kind: "Creator" | "Official source" | "Company" | "Keyword" | "Topic" | "Country" | "Language";
   value: string;
   highPriority: boolean;
 }

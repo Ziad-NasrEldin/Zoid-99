@@ -11,6 +11,129 @@ struct SourceSyncResult: Sendable {
 }
 protocol ResearchSyncing: Sendable {
     func synchronize() async -> [SourceSyncResult]
+    func synchronize(watchlist: [WatchlistEntry]) async -> [SourceSyncResult]
+    func researchTopic(_ query: String, watchlist: [WatchlistEntry]) async -> [SourceSyncResult]
+}
+
+extension ResearchSyncing {
+    func synchronize(watchlist: [WatchlistEntry]) async -> [SourceSyncResult] {
+        await synchronize()
+    }
+
+    func researchTopic(_ query: String, watchlist: [WatchlistEntry]) async -> [SourceSyncResult] {
+        var queryWatchlist = watchlist
+        if !queryWatchlist.contains(where: {
+            $0.kind == .topic && $0.value.caseInsensitiveCompare(query) == .orderedSame
+        }) {
+            queryWatchlist.append(
+                WatchlistEntry(id: UUID(), kind: .topic, value: query, highPriority: true)
+            )
+        }
+        return await synchronize(watchlist: queryWatchlist)
+    }
+}
+
+struct WatchlistSyncResult: Sendable {
+    let synchronizedEntries: [WatchlistEntry]
+    let errorMessage: String?
+}
+
+protocol WatchlistSyncing: Sendable {
+    func fetchCanonical() async -> WatchlistSyncResult
+    func reconcile(_ entries: [WatchlistEntry]) async -> WatchlistSyncResult
+}
+
+extension WatchlistSyncing {
+    func fetchCanonical() async -> WatchlistSyncResult {
+        WatchlistSyncResult(
+            synchronizedEntries: [],
+            errorMessage: "Backend watchlist sync is not configured"
+        )
+    }
+}
+
+struct NoopWatchlistSync: WatchlistSyncing {
+    func reconcile(_ entries: [WatchlistEntry]) async -> WatchlistSyncResult {
+        WatchlistSyncResult(
+            synchronizedEntries: [],
+            errorMessage: "Backend watchlist sync is not configured"
+        )
+    }
+}
+
+enum WatchlistSyncFactory {
+    static func production(environment: [String: String] = ProcessInfo.processInfo.environment)
+        -> any WatchlistSyncing {
+        guard let rawURL = environment["ZOID99_API_BASE_URL"] ?? environment["ZOID99_BACKEND_URL"],
+              let baseURL = URL(string: rawURL),
+              let apiToken = environment["ZOID99_API_TOKEN"] ?? ProductionResearchSync.keychainToken(),
+              apiToken.count >= 32 else {
+            return NoopWatchlistSync()
+        }
+        return BackendWatchlistSync(baseURL: baseURL, apiToken: apiToken)
+    }
+}
+
+struct BackendWatchlistSync: WatchlistSyncing {
+    let baseURL: URL
+    let apiToken: String
+    let transport: any HTTPTransport
+
+    init(baseURL: URL, apiToken: String, transport: any HTTPTransport = URLSessionHTTPTransport()) {
+        self.baseURL = baseURL
+        self.apiToken = apiToken
+        self.transport = transport
+    }
+
+    func fetchCanonical() async -> WatchlistSyncResult {
+        await request(method: "GET", body: nil)
+    }
+
+    func reconcile(_ entries: [WatchlistEntry]) async -> WatchlistSyncResult {
+        await request(
+            method: "PUT",
+            body: try? Self.encoder.encode(ReplacementPayload(entries: entries))
+        )
+    }
+
+    private func request(method: String, body: Data?) async -> WatchlistSyncResult {
+        do {
+            guard method == "GET" || body != nil else {
+                throw BackendSyncError.invalidResponse
+            }
+            let response = try await transport.send(
+                HTTPRequest(
+                    url: baseURL.appendingPathComponent("v1/watchlist"),
+                    method: method,
+                    headers: [
+                        "Accept": "application/json",
+                        "Authorization": "Bearer \(apiToken)",
+                        "Content-Type": "application/json"
+                    ],
+                    body: body
+                )
+            )
+            guard response.statusCode == 200 else {
+                throw BackendSyncError.httpStatus(response.statusCode)
+            }
+            return WatchlistSyncResult(
+                synchronizedEntries: try Self.decoder.decode([WatchlistEntry].self, from: response.body),
+                errorMessage: nil
+            )
+        } catch {
+            return WatchlistSyncResult(
+                synchronizedEntries: [],
+                errorMessage: "Backend watchlist sync failed"
+            )
+        }
+    }
+
+    private static let encoder = JSONEncoder()
+    private static let decoder = JSONDecoder()
+
+    private struct ReplacementPayload: Encodable {
+        let entries: [WatchlistEntry]
+    }
 }
 
 struct DispositionSyncResult: Sendable {
@@ -162,6 +285,7 @@ private struct RemoteDisposition: Decodable {
 
 private enum BackendSyncError: Error {
     case httpStatus(Int)
+    case invalidResponse
 }
 
 struct NoopResearchSync: ResearchSyncing {
@@ -181,8 +305,10 @@ struct NoopResearchSync: ResearchSyncing {
 
 struct ProductionResearchSync: ResearchSyncing {
     private let backend: BackendResearchSync?
+    private let environment: [String: String]
 
     init(environment: [String: String] = ProcessInfo.processInfo.environment) {
+        self.environment = environment
         guard
             let rawURL = environment["ZOID99_API_BASE_URL"],
             let baseURL = URL(string: rawURL),
@@ -195,7 +321,7 @@ struct ProductionResearchSync: ResearchSyncing {
         backend = BackendResearchSync(baseURL: baseURL, token: token)
     }
 
-    private static func keychainToken() -> String? {
+    static func keychainToken() -> String? {
         let query: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
             kSecAttrService: "Zoid99Backend",
@@ -214,5 +340,15 @@ struct ProductionResearchSync: ResearchSyncing {
     func synchronize() async -> [SourceSyncResult] {
         guard let backend else { return await NoopResearchSync().synchronize() }
         return await backend.synchronize()
+    }
+
+    func synchronize(watchlist: [WatchlistEntry]) async -> [SourceSyncResult] {
+        guard let backend else { return await NoopResearchSync().synchronize() }
+        return await backend.synchronize(
+            additionalConnectors: WatchlistConnectorFactory.connectors(
+                for: watchlist,
+                environment: environment
+            )
+        )
     }
 }

@@ -61,6 +61,25 @@ struct Zoid99App: App {
                     .keyboardShortcut("1", modifiers: [.command])
                 Button("Open Live Radar") { store.selectedDestination = .radar }
                     .keyboardShortcut("2", modifiers: [.command])
+                Button("Open Topics") { store.selectedDestination = .topics }
+                    .keyboardShortcut("3", modifiers: [.command])
+                Button("Open Comments") { store.selectedDestination = .comments }
+                    .keyboardShortcut("4", modifiers: [.command])
+                Button("Open Watchlists") { store.selectedDestination = .watchlists }
+                    .keyboardShortcut("5", modifiers: [.command])
+                Button("Open Notifications") { store.selectedDestination = .notifications }
+                    .keyboardShortcut("6", modifiers: [.command])
+                Button("Open Sources and Settings") { store.selectedDestination = .settings }
+                    .keyboardShortcut("7", modifiers: [.command])
+                Divider()
+                Button("Focus Search") {
+                    store.selectedDestination = .radar
+                    Task { @MainActor in
+                        await Task.yield()
+                        store.requestSearchFocus()
+                    }
+                }
+                .keyboardShortcut("f", modifiers: [.command])
             }
         }
 
@@ -68,10 +87,19 @@ struct Zoid99App: App {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Notifications: \(store.notificationPermission.rawValue)")
                 Text("\(store.notifications.filter { !$0.isRead }.count) unread")
+                Text("Sources: \(store.connectedSourceCount)/6 connected")
+                Text(store.lastRefreshAt.map {
+                    "Last refresh: \($0.formatted(date: .abbreviated, time: .shortened))"
+                } ?? "Last refresh: no successful sync")
+                Text("Status: \(store.statusMessage)")
                 Text(store.quietHoursEnabled
                     ? "Quiet hours \(String(format: "%02d:00", store.quietStartHour))-\(String(format: "%02d:00", store.quietEndHour))"
                     : "Quiet hours off")
                 Divider()
+                Button(store.isRefreshing ? "Refreshing research" : "Refresh research") {
+                    Task { await store.refresh() }
+                }
+                .disabled(store.isRefreshing)
                 Button("Open Notifications") {
                     store.selectedDestination = .notifications
                 }

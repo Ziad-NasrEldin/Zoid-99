@@ -394,6 +394,46 @@ export class PostgreSqlRepository implements ResearchRepository, EncryptedConfig
     return { id: result.rows[0]!.id, ...input };
   }
 
+  async updateWatchlist(id: string, input: Omit<WatchlistEntry, "id">): Promise<WatchlistEntry | null> {
+    const result = await this.database.query<{ id: string }>(`
+      UPDATE watchlist_entries
+      SET kind = $2, value = $3, high_priority = $4
+      WHERE id = $1
+      RETURNING id
+    `, [id, input.kind, input.value, input.highPriority]);
+    return result.rows[0] ? { id: result.rows[0].id, ...input } : null;
+  }
+
+  async replaceWatchlist(entries: WatchlistEntry[]): Promise<WatchlistEntry[]> {
+    const client = await this.database.connect();
+    try {
+      await client.query("BEGIN");
+      const ids = entries.map((entry) => entry.id);
+      if (ids.length === 0) {
+        await client.query("DELETE FROM watchlist_entries");
+      } else {
+        await client.query("DELETE FROM watchlist_entries WHERE id <> ALL($1::uuid[])", [ids]);
+      }
+      for (const entry of entries) {
+        await client.query(`
+          INSERT INTO watchlist_entries (id, kind, value, high_priority)
+          VALUES ($1, $2, $3, $4)
+          ON CONFLICT (id) DO UPDATE SET
+            kind = EXCLUDED.kind,
+            value = EXCLUDED.value,
+            high_priority = EXCLUDED.high_priority
+        `, [entry.id, entry.kind, entry.value, entry.highPriority]);
+      }
+      await client.query("COMMIT");
+      return this.listWatchlist();
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async deleteWatchlist(id: string): Promise<boolean> {
     const result = await this.database.query("DELETE FROM watchlist_entries WHERE id = $1", [id]);
     return result.rowCount === 1;

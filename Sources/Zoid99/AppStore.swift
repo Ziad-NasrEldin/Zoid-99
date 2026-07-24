@@ -14,7 +14,12 @@ final class AppStore: ObservableObject {
     @Published var watchlist: [WatchlistEntry] = []
     @Published var radarSource: SourceGroup?
     @Published var radarVerification: VerificationState?
+    @Published var radarTopic = ""
+    @Published var radarCountry: String?
+    @Published var radarLanguage: String?
+    @Published var radarFreshness: RadarFreshness = .any
     @Published var searchText = ""
+    @Published var searchFocusRequest = 0
     @Published var setupComplete = false
     @Published var refreshMinutes = 15
     @Published var notificationsEnabled = false
@@ -25,6 +30,9 @@ final class AppStore: ObservableObject {
     @Published var digestHour = 18
     @Published var statusMessage = "Ready"
     @Published var isRefreshing = false
+    @Published var isResearchingTopic = false
+    @Published var watchlistError: String?
+    @Published private(set) var watchlistSyncState = "Saved locally"
     @Published private(set) var dataTruth: DataTruth = .missing
 
     private var sourceItems: [SourceItem] = []
@@ -37,15 +45,19 @@ final class AppStore: ObservableObject {
     private let persistence: any ResearchPersistence
     private let sync: any ResearchSyncing
     private let dispositionSync: any OpportunityDispositionSyncing
+    private let watchlistSync: any WatchlistSyncing
     private let now: @Sendable () -> Date
     private let connectionService: any ProviderConnectionServicing
     private let notificationDelivery: any NotificationDelivering
     private var scheduledRefreshTask: Task<Void, Never>?
+    private var isSyncingWatchlist = false
+    private var watchlistNeedsSync = false
 
     init(
         persistence: any ResearchPersistence = JSONResearchPersistence.production(),
         sync: any ResearchSyncing = ProductionResearchSync(),
         dispositionSync: any OpportunityDispositionSyncing = OpportunityDispositionSyncFactory.production(),
+        watchlistSync: any WatchlistSyncing = WatchlistSyncFactory.production(),
         now: @escaping @Sendable () -> Date = { .now },
         connectionService: any ProviderConnectionServicing = LocalProviderConnectionService(),
         notificationDelivery: any NotificationDelivering = UnavailableNotificationDelivery(),
@@ -54,6 +66,7 @@ final class AppStore: ObservableObject {
         self.persistence = persistence
         self.sync = sync
         self.dispositionSync = dispositionSync
+        self.watchlistSync = watchlistSync
         self.now = now
         self.connectionService = connectionService
         self.notificationDelivery = notificationDelivery
@@ -97,22 +110,125 @@ final class AppStore: ObservableObject {
         opportunities.first { $0.id == selectedOpportunityID }
     }
 
+    var lastRefreshAt: Date? {
+        lastSuccessfulSyncAt
+    }
+
+    var connectedSourceCount: Int {
+        sourceHealth.filter { $0.state == .connected }.count
+    }
+
+    var activeOpportunities: [Opportunity] {
+        opportunities.filter {
+            $0.disposition != .dismissed && $0.disposition != .muted
+        }
+    }
+
     var visibleOpportunities: [Opportunity] {
-        opportunities.filter { opportunity in
+        activeOpportunities
+    }
+
+    var radarOpportunities: [Opportunity] {
+        activeOpportunities.filter { opportunity in
             guard opportunity.disposition != .dismissed, opportunity.disposition != .muted else { return false }
             let sourceMatch = radarSource.map { source in opportunity.items.contains { $0.group == source } } ?? true
             let verificationMatch = radarVerification.map { $0 == opportunity.verification } ?? true
+            let topicMatch = radarTopic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || opportunity.matchesResearchQuery(radarTopic)
+            let countryMatch = radarCountry.map { country in
+                opportunity.items.contains { $0.country.caseInsensitiveCompare(country) == .orderedSame }
+            } ?? true
+            let languageMatch = radarLanguage.map { language in
+                opportunity.items.contains { $0.language.caseInsensitiveCompare(language) == .orderedSame }
+            } ?? true
+            let latestPublishedAt = opportunity.items.map(\.publishedAt).max() ?? opportunity.earliestPublishedAt
+            let freshnessMatch = radarFreshness.includes(latestPublishedAt, now: now())
             let searchMatch = searchText.isEmpty
                 || opportunity.title.localizedCaseInsensitiveContains(searchText)
-                || opportunity.items.contains { $0.summary.localizedCaseInsensitiveContains(searchText) }
-            return sourceMatch && verificationMatch && searchMatch
+                || opportunity.items.contains {
+                    $0.title.localizedCaseInsensitiveContains(searchText)
+                        || $0.summary.localizedCaseInsensitiveContains(searchText)
+                        || $0.author.localizedCaseInsensitiveContains(searchText)
+                }
+            return sourceMatch && verificationMatch && topicMatch && countryMatch
+                && languageMatch && freshnessMatch && searchMatch
         }
+    }
+
+    var radarCountries: [String] {
+        metadataValues(\.country)
+    }
+
+    var radarLanguages: [String] {
+        metadataValues(\.language)
+    }
+
+    func clearRadarFilters() {
+        searchText = ""
+        radarSource = nil
+        radarVerification = nil
+        radarTopic = ""
+        radarCountry = nil
+        radarLanguage = nil
+        radarFreshness = .any
+        statusMessage = "Radar filters cleared"
+    }
+
+    func requestSearchFocus() {
+        searchFocusRequest += 1
+    }
+
+    func topicResearch(query: String) -> TopicResearchResult {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let healthByGroup = Dictionary(uniqueKeysWithValues: sourceHealth.map { ($0.group, $0) })
+        guard !trimmed.isEmpty else {
+            return TopicResearchResult(
+                query: "",
+                state: .prompt,
+                evidence: [],
+                opportunities: [],
+                sourceCoverage: topicCoverage(evidence: [], healthByGroup: healthByGroup)
+            )
+        }
+        guard !sourceItems.isEmpty else {
+            return TopicResearchResult(
+                query: trimmed,
+                state: .missingData,
+                evidence: [],
+                opportunities: [],
+                sourceCoverage: topicCoverage(evidence: [], healthByGroup: healthByGroup)
+            )
+        }
+        let directEvidence = sourceItems.filter { $0.matchesResearchQuery(trimmed) }
+        let matchingOpportunities = activeOpportunities.filter { opportunity in
+            opportunity.matchesResearchQuery(trimmed)
+                || opportunity.items.contains { item in directEvidence.contains { $0.id == item.id } }
+        }
+        var evidenceByID: [UUID: SourceItem] = [:]
+        let evidenceCandidates = directEvidence.isEmpty
+            ? matchingOpportunities.flatMap(\.items)
+            : directEvidence
+        for item in evidenceCandidates {
+            evidenceByID[item.id] = item
+        }
+        let evidence = evidenceByID.values.sorted {
+            if $0.publishedAt == $1.publishedAt { return $0.id.uuidString < $1.id.uuidString }
+            return $0.publishedAt > $1.publishedAt
+        }
+        return TopicResearchResult(
+            query: trimmed,
+            state: evidence.isEmpty ? .noMatches : .results,
+            evidence: evidence,
+            opportunities: matchingOpportunities,
+            sourceCoverage: topicCoverage(evidence: evidence, healthByGroup: healthByGroup)
+        )
     }
 
     func refresh() async {
         isRefreshing = true
         statusMessage = "Synchronizing"
-        let results = await sync.synchronize()
+        await synchronizeWatchlist()
+        let results = await sync.synchronize(watchlist: watchlist)
         let liveItems = results.flatMap { result in
             result.items.map {
                 var item = $0
@@ -156,6 +272,21 @@ final class AppStore: ObservableObject {
         persistReportingFailure()
         await synchronizePendingDispositions()
         isRefreshing = false
+    }
+
+    func researchTopicAcrossConnectedSources(_ query: String) async {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !isResearchingTopic else { return }
+        isResearchingTopic = true
+        statusMessage = "Researching topic across connected sources"
+        await synchronizeWatchlist()
+        let results = await sync.researchTopic(trimmed, watchlist: watchlist)
+        mergeResearchResults(results)
+        statusMessage = results.flatMap(\.items).isEmpty
+            ? "Topic research complete - no new evidence"
+            : "Topic research complete"
+        persistReportingFailure()
+        isResearchingTopic = false
     }
 
     func updateDisposition(_ disposition: OpportunityDisposition, id: UUID) {
@@ -224,25 +355,129 @@ final class AppStore: ObservableObject {
         persistReportingFailure()
     }
 
-    func addWatchlist(kind: WatchlistEntry.Kind, value: String) {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        watchlist.append(WatchlistEntry(id: UUID(), kind: kind, value: trimmed, highPriority: false))
-        statusMessage = "Watchlist added"
-        persistReportingFailure()
+    @discardableResult
+    func addWatchlist(kind: WatchlistEntry.Kind, value: String) -> Bool {
+        do {
+            let validated = try WatchlistValidator.validatedValue(
+                kind: kind,
+                value: value,
+                existing: watchlist
+            )
+            watchlist.append(
+                WatchlistEntry(id: UUID(), kind: kind, value: validated, highPriority: false)
+            )
+            watchlistError = nil
+            finishWatchlistChange(message: "Watchlist added")
+            return true
+        } catch {
+            watchlistError = error.localizedDescription
+            statusMessage = "Watchlist not changed"
+            return false
+        }
     }
 
     func removeWatchlist(at offsets: IndexSet) {
         watchlist.remove(atOffsets: offsets)
-        statusMessage = "Watchlist removed"
+        watchlistNeedsSync = true
+        statusMessage = "Watchlist removed - saved locally"
         persistReportingFailure()
+        Task { await synchronizeWatchlist() }
+    }
+
+    func removeWatchlist(id: UUID) {
+        guard let index = watchlist.firstIndex(where: { $0.id == id }) else { return }
+        watchlist.remove(at: index)
+        watchlistNeedsSync = true
+        statusMessage = "Watchlist removed - saved locally"
+        persistReportingFailure()
+        Task { await synchronizeWatchlist() }
+    }
+
+    @discardableResult
+    func updateWatchlist(
+        id: UUID,
+        kind: WatchlistEntry.Kind,
+        value: String,
+        highPriority: Bool
+    ) -> Bool {
+        guard let index = watchlist.firstIndex(where: { $0.id == id }) else { return false }
+        do {
+            let validated = try WatchlistValidator.validatedValue(
+                kind: kind,
+                value: value,
+                existing: watchlist,
+                excludingID: id
+            )
+            watchlist[index] = WatchlistEntry(
+                id: id,
+                kind: kind,
+                value: validated,
+                highPriority: highPriority
+            )
+            watchlistError = nil
+            finishWatchlistChange(message: "Watchlist updated")
+            return true
+        } catch {
+            watchlistError = error.localizedDescription
+            statusMessage = "Watchlist not changed"
+            return false
+        }
     }
 
     func setWatchlistPriority(id: UUID, highPriority: Bool) {
         guard let index = watchlist.firstIndex(where: { $0.id == id }) else { return }
         watchlist[index].highPriority = highPriority
-        statusMessage = "Watchlist updated"
+        watchlistNeedsSync = true
+        statusMessage = "Watchlist priority updated - saved locally"
         persistReportingFailure()
+        Task { await synchronizeWatchlist() }
+    }
+
+    func synchronizeWatchlist() async {
+        guard !isSyncingWatchlist else { return }
+        isSyncingWatchlist = true
+        defer { isSyncingWatchlist = false }
+        if !watchlistNeedsSync {
+            let localSnapshot = watchlist
+            watchlistSyncState = "Checking backend watchlist"
+            let result = await watchlistSync.fetchCanonical()
+            guard result.errorMessage == nil else {
+                watchlistSyncState = watchlistNeedsSync
+                    ? "Saved locally - backend sync pending"
+                    : "Saved locally - backend unavailable"
+                return
+            }
+            if !watchlistNeedsSync, watchlist == localSnapshot {
+                watchlist = result.synchronizedEntries
+                watchlistSyncState = "Saved locally and synchronized"
+                persistReportingFailure()
+                return
+            }
+        }
+        repeat {
+            let snapshot = watchlist
+            watchlistSyncState = "Saved locally - synchronizing"
+            let result = await watchlistSync.reconcile(snapshot)
+            if result.errorMessage != nil {
+                watchlistSyncState = "Saved locally - backend sync pending"
+                return
+            }
+            if watchlist == snapshot {
+                watchlist = result.synchronizedEntries
+                watchlistNeedsSync = false
+                watchlistSyncState = "Saved locally and synchronized"
+                persistReportingFailure()
+                return
+            }
+        } while true
+    }
+
+    private func finishWatchlistChange(message: String) {
+        watchlistNeedsSync = true
+        statusMessage = "\(message) - saved locally"
+        watchlistSyncState = "Saved locally - backend sync pending"
+        persistReportingFailure()
+        Task { await synchronizeWatchlist() }
     }
 
     func setRefreshMinutes(_ minutes: Int) {
@@ -436,6 +671,7 @@ final class AppStore: ObservableObject {
         updateProviderConnectionsFromSourceHealth()
         sourceHealthHistory = stored.sourceHealthHistory
         watchlist = stored.watchlist
+        watchlistNeedsSync = stored.watchlistNeedsSync ?? !stored.watchlist.isEmpty
         settings = stored.settings
         setupComplete = settings.setupComplete
         refreshMinutes = settings.refreshMinutes
@@ -492,6 +728,78 @@ final class AppStore: ObservableObject {
         if truths.contains(.delayed) { return .delayed }
         if truths.contains(.unavailable) { return .unavailable }
         return .missing
+    }
+
+    private func metadataValues(_ keyPath: KeyPath<SourceItem, String>) -> [String] {
+        Array(Set(sourceItems.map { $0[keyPath: keyPath].trimmingCharacters(in: .whitespacesAndNewlines) }))
+            .filter { !$0.isEmpty }
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    private func mergeResearchResults(_ results: [SourceSyncResult]) {
+        let collectedItems = results.flatMap { result in
+            result.items.map {
+                var item = $0
+                item.dataTruth = result.dataTruth
+                return item
+            }
+        }
+        if !collectedItems.isEmpty {
+            var itemByKey: [String: SourceItem] = [:]
+            for item in sourceItems {
+                itemByKey["\(item.group.rawValue):\(item.externalID)"] = item
+            }
+            for item in collectedItems {
+                itemByKey["\(item.group.rawValue):\(item.externalID)"] = item
+            }
+            sourceItems = itemByKey.values.sorted {
+                if $0.publishedAt == $1.publishedAt { return $0.id.uuidString < $1.id.uuidString }
+                return $0.publishedAt > $1.publishedAt
+            }
+            let output = pipeline.run(items: sourceItems)
+            opportunities = output.opportunities.map(applyingStoredDisposition)
+            comments = output.comments
+            lastSuccessfulSyncAt = results.map(\.collectedAt).max()
+        }
+        let healthByGroup = Dictionary(uniqueKeysWithValues: results.map { ($0.group, $0) })
+        sourceHealth = SourceGroup.allCases.map { group in
+            guard let result = healthByGroup[group] else {
+                return sourceHealth.first(where: { $0.group == group }) ?? SourceHealth(
+                    group: group,
+                    state: .setupRequired,
+                    lastActivity: nil,
+                    evidence: "This source is not configured.",
+                    repairAction: "Configure",
+                    dataTruth: .missing
+                )
+            }
+            return SourceHealth(
+                group: group,
+                state: result.state,
+                lastActivity: result.collectedAt,
+                evidence: result.evidence,
+                repairAction: repairAction(for: result.state),
+                dataTruth: result.dataTruth
+            )
+        }
+        updateProviderConnectionsFromSourceHealth()
+        recordSourceHealth(results)
+        dataTruth = aggregateTruth(sourceHealth.map(\.dataTruth))
+    }
+
+    private func topicCoverage(
+        evidence: [SourceItem],
+        healthByGroup: [SourceGroup: SourceHealth]
+    ) -> [TopicSourceCoverage] {
+        SourceGroup.allCases.map { group in
+            let health = healthByGroup[group]
+            return TopicSourceCoverage(
+                group: group,
+                matchingEvidenceCount: evidence.filter { $0.group == group }.count,
+                state: health?.state ?? .setupRequired,
+                dataTruth: health?.dataTruth ?? .missing
+            )
+        }
     }
 
     private func retainedEvidence(from previous: String, current: String) -> String? {
@@ -641,7 +949,8 @@ final class AppStore: ObservableObject {
                 sourceHealth: sourceHealth,
                 sourceHealthHistory: sourceHealthHistory,
                 lastSuccessfulSyncAt: lastSuccessfulSyncAt,
-                pendingDispositionMutations: pendingDispositionMutations
+                pendingDispositionMutations: pendingDispositionMutations,
+                watchlistNeedsSync: watchlistNeedsSync
             )
         )
     }
@@ -657,6 +966,24 @@ final class AppStore: ObservableObject {
     ) -> Bool {
         if left.changedAt != right.changedAt { return left.changedAt < right.changedAt }
         return left.id.uuidString < right.id.uuidString
+    }
+}
+
+private extension SourceItem {
+    func matchesResearchQuery(_ query: String) -> Bool {
+        title.localizedCaseInsensitiveContains(query)
+            || summary.localizedCaseInsensitiveContains(query)
+            || author.localizedCaseInsensitiveContains(query)
+            || topicKey.localizedCaseInsensitiveContains(query)
+    }
+}
+
+private extension Opportunity {
+    func matchesResearchQuery(_ query: String) -> Bool {
+        title.localizedCaseInsensitiveContains(query)
+            || brief.localizedCaseInsensitiveContains(query)
+            || topicKey.localizedCaseInsensitiveContains(query)
+            || items.contains { $0.matchesResearchQuery(query) }
     }
 }
 

@@ -293,3 +293,49 @@ test("a duplicate watchlist value returns a stable conflict", async (context) =>
     message: "The record already exists",
   });
 });
+
+test("watchlists support company edits and atomic private-user replacement", async (context) => {
+  const repository = new MemoryRepository();
+  const app = buildApi({ repository, apiToken });
+  context.after(() => app.close());
+  const id = "40000000-0000-4000-8000-000000000099";
+
+  const replaced = await app.inject({
+    method: "PUT",
+    url: "/v1/watchlist",
+    headers: authorization,
+    payload: {
+      entries: [{ id, kind: "Company", value: "OpenAI", highPriority: true }],
+    },
+  });
+  assert.equal(replaced.statusCode, 200);
+  assert.equal(repository.watchlist[0]?.kind, "Company");
+
+  const edited = await app.inject({
+    method: "PATCH",
+    url: `/v1/watchlist/${id}`,
+    headers: authorization,
+    payload: { kind: "Company", value: "Anthropic", highPriority: false },
+  });
+  assert.equal(edited.statusCode, 200);
+  assert.equal(edited.json().value, "Anthropic");
+  assert.equal(repository.watchlist[0]?.highPriority, false);
+});
+
+test("official-source watchlists require complete HTTPS links", async (context) => {
+  const app = buildApi({ repository: new MemoryRepository(), apiToken });
+  context.after(() => app.close());
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/v1/watchlist",
+    headers: authorization,
+    payload: {
+      kind: "Official source",
+      value: "example.com/feed",
+      highPriority: false,
+    },
+  });
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.json().error, "invalid_request");
+});

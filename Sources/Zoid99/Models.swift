@@ -225,6 +225,7 @@ struct WatchlistEntry: Identifiable, Codable, Hashable, Sendable {
     enum Kind: String, CaseIterable, Codable, Sendable {
         case creator = "Creator"
         case officialSource = "Official source"
+        case company = "Company"
         case keyword = "Keyword"
         case topic = "Topic"
         case country = "Country"
@@ -404,6 +405,7 @@ struct ResearchState: Codable, Hashable, Sendable {
     var sourceHealthHistory: [SourceHealthRecord]
     var lastSuccessfulSyncAt: Date?
     var pendingDispositionMutations: [OpportunityDispositionMutation]? = []
+    var watchlistNeedsSync: Bool? = false
 
     static let empty = ResearchState(
         sourceItems: [],
@@ -416,7 +418,8 @@ struct ResearchState: Codable, Hashable, Sendable {
         sourceHealth: [],
         sourceHealthHistory: [],
         lastSuccessfulSyncAt: nil,
-        pendingDispositionMutations: []
+        pendingDispositionMutations: [],
+        watchlistNeedsSync: false
     )
 }
 

@@ -51,6 +51,8 @@ The first version has one user and no public registration or session endpoint.
 - `PATCH /v1/opportunities/:id/disposition`
 - `GET /v1/watchlist`
 - `POST /v1/watchlist`
+- `PATCH /v1/watchlist/:id`
+- `PUT /v1/watchlist`
 - `DELETE /v1/watchlist/:id`
 - `GET /v1/notifications`
 - `PATCH /v1/notifications/:id`
@@ -58,6 +60,55 @@ The first version has one user and no public registration or session endpoint.
 Response fields and written enum values match the existing Swift models.
 Bootstrap responses include an `ETag`; the macOS client sends `If-None-Match` so unchanged state returns `304 Not Modified`.
 Database-only fields and encrypted values are never returned.
+
+### Watchlist mutations
+
+`PATCH /v1/watchlist/:id` replaces one existing entry and requires the full entry payload:
+
+```json
+{
+  "kind": "Company",
+  "value": "OpenAI",
+  "highPriority": true
+}
+```
+
+The accepted `kind` values are `Creator`, `Official source`, `Company`, `Keyword`, `Topic`, `Country`, and `Language`.
+`Official source` values must be complete HTTPS URLs.
+The response is `200` with the updated watchlist entry, or `404` when the UUID does not exist.
+
+`PUT /v1/watchlist` atomically replaces the complete private user's watchlist and requires an `entries` array:
+
+```json
+{
+  "entries": [
+    {
+      "id": "40000000-0000-4000-8000-000000000099",
+      "kind": "Company",
+      "value": "OpenAI",
+      "highPriority": true
+    }
+  ]
+}
+```
+
+Each entry must include its UUID, kind, value, and priority.
+The server deletes entries omitted from the array, inserts new UUIDs, and updates matching UUIDs in one database transaction.
+If validation or a uniqueness check fails, the transaction is rolled back and the previous watchlist remains unchanged.
+Duplicate entries with the same kind and case-insensitive value return `409`.
+An empty `entries` array is valid and clears the watchlist atomically.
+The response is `200` with the resulting complete array of watchlist entries.
+
+The always-on collector reads the saved watchlist at the start of every cycle.
+Official source URLs use the RSS/Atom parser and retain each item URL and publication timestamp.
+The server accepts only HTTPS public-network feed targets, pins an approved DNS result, revalidates redirects, and rejects responses over 2 MiB.
+YouTube, X, and Instagram requests are made only when a matching server credential exists; missing credentials produce `Setup required` health with no provider request.
+YouTube country and language selections become official Data API search parameters.
+X language selections become recent-search query operators, while country values remain collected-evidence labels because the official recent-search API does not provide a country query operator.
+Instagram creator entries use the official Business Discovery field and require both `ZOID99_INSTAGRAM_ACCOUNT_ID` and `ZOID99_INSTAGRAM_ACCESS_TOKEN`.
+Social API results remain unverified evidence and cannot establish a confirmed original source.
+An official API or feed that responds successfully with zero matching records remains a connected live source rather than being reported unavailable.
+The Google Trends alpha path remains `Setup required` until an approved official client is supplied.
 
 Disposition updates require `disposition`, the explicit user-action timestamp in `changedAt`, and an idempotency UUID in `mutationID`.
 Repeating the same mutation is safe.
@@ -81,8 +132,11 @@ Use `compose.production.yml` as a provider-neutral release contract, not as auth
 Validate production environment variables with `npm run config:validate` before migrations or startup.
 Run migrations once before starting a new application version.
 Every additive migration has a matching SQL rollback under `migrations/rollback/` that is not applied by the forward migration runner.
+The 005 rollback preserves unsupported `Company` entries in `watchlist_entries_company_archive` before restoring the pre-005 constraint.
+After reapplying migration 005, an operator can restore an archived row with an explicit `INSERT ... SELECT` after reviewing the archived value and timestamps.
 Use a managed PostgreSQL 17 service with encrypted backups, point-in-time recovery, and required TLS.
 Store the API token, database URL, and encryption key in the deployment platform's secret manager.
+Store any always-on provider variables listed in `.env.production.example` in the same managed secret store and rotate them through the provider and deployment platform together.
 Rotate the API token by updating the service and macOS Keychain together.
 Rotating the encryption key requires decrypting and re-encrypting stored configuration in a controlled maintenance operation.
 See `ops/README.md` for backup, restore, monitoring, rotation, deployment, and rollback procedures.

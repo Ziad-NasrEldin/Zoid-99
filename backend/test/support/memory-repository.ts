@@ -189,6 +189,21 @@ export class MemoryRepository implements ResearchRepository {
     return structuredClone(entry);
   }
 
+  async updateWatchlist(
+    id: string,
+    input: Omit<WatchlistEntry, "id">,
+  ): Promise<WatchlistEntry | null> {
+    const index = this.watchlist.findIndex((entry) => entry.id === id);
+    if (index === -1) return null;
+    this.watchlist[index] = { id, ...input };
+    return structuredClone(this.watchlist[index]);
+  }
+
+  async replaceWatchlist(entries: WatchlistEntry[]): Promise<WatchlistEntry[]> {
+    this.watchlist = structuredClone(entries);
+    return structuredClone(this.watchlist);
+  }
+
   async deleteWatchlist(id: string): Promise<boolean> {
     const index = this.watchlist.findIndex((entry) => entry.id === id);
     if (index === -1) return false;

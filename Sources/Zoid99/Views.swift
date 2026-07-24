@@ -169,6 +169,13 @@ struct OpportunityRow: View {
     @EnvironmentObject private var store: AppStore
     let opportunity: Opportunity
 
+    private var textDirection: LayoutDirection {
+        ResearchTextDirection.resolve(
+            languageCode: opportunity.originalSource?.language,
+            text: "\(opportunity.title) \(opportunity.brief)"
+        ) == .rightToLeft ? .rightToLeft : .leftToRight
+    }
+
     var body: some View {
         Button {
             store.selectedOpportunityID = opportunity.id
@@ -189,12 +196,20 @@ struct OpportunityRow: View {
                     }
                     Text(opportunity.title)
                         .font(SumiFont.display(20))
-                        .multilineTextAlignment(.leading)
+                        .environment(\.layoutDirection, textDirection)
+                        .frame(
+                            maxWidth: .infinity,
+                            alignment: textDirection == .rightToLeft ? .trailing : .leading
+                        )
                     Text(opportunity.brief)
                         .font(SumiFont.body())
                         .foregroundStyle(SumiColor.mutedInk)
                         .lineLimit(2)
-                        .multilineTextAlignment(.leading)
+                        .environment(\.layoutDirection, textDirection)
+                        .frame(
+                            maxWidth: .infinity,
+                            alignment: textDirection == .rightToLeft ? .trailing : .leading
+                        )
                     HStack(spacing: 14) {
                         Text("SCORE \(opportunity.score.total)")
                         Text("\(opportunity.items.count) SOURCES")
@@ -210,6 +225,11 @@ struct OpportunityRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(
+            "\(opportunity.title), \(opportunity.verification.rawValue), "
+                + "\(opportunity.items.count) sources"
+        )
+        .accessibilityHint("Open the evidence and opportunity actions")
         .overlay(alignment: .bottom) { Divider().overlay(SumiColor.rule) }
         .sheet(isPresented: Binding(
             get: { store.selectedOpportunityID == opportunity.id },
@@ -222,6 +242,7 @@ struct OpportunityRow: View {
 
 struct RadarView: View {
     @EnvironmentObject private var store: AppStore
+    @FocusState private var searchFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -230,35 +251,74 @@ struct RadarView: View {
                 title: "Live Radar",
                 subtitle: "Everything collected, with duplicates combined before ranking."
             )
-            HStack(spacing: 10) {
-                TextField("Search evidence", text: $store.searchText)
+            VStack(alignment: .leading, spacing: 10) {
+                TextField("Search titles, evidence, authors, and topics", text: $store.searchText)
                     .textFieldStyle(.plain)
                     .padding(9)
                     .overlay(Rectangle().stroke(SumiColor.ink, lineWidth: 1))
-                Picker("Source", selection: $store.radarSource) {
-                    Text("All sources").tag(SourceGroup?.none)
-                    ForEach(SourceGroup.allCases) { Text($0.rawValue).tag(Optional($0)) }
+                    .focused($searchFocused)
+                    .accessibilityLabel("Search Live Radar evidence")
+                HStack(spacing: 10) {
+                    RadarFilterPicker("Source", selection: $store.radarSource) {
+                        Text("All sources").tag(SourceGroup?.none)
+                        ForEach(SourceGroup.allCases) { Text($0.rawValue).tag(Optional($0)) }
+                    }
+                    TextField("Topic", text: $store.radarTopic)
+                        .textFieldStyle(.plain)
+                        .padding(7)
+                        .frame(minWidth: 130)
+                        .overlay(Rectangle().stroke(SumiColor.rule, lineWidth: 1))
+                        .accessibilityLabel("Filter by topic")
+                    RadarFilterPicker("Country", selection: $store.radarCountry) {
+                        Text("Any country").tag(String?.none)
+                        ForEach(store.radarCountries, id: \.self) { Text($0).tag(Optional($0)) }
+                    }
+                    RadarFilterPicker("Language", selection: $store.radarLanguage) {
+                        Text("Any language").tag(String?.none)
+                        ForEach(store.radarLanguages, id: \.self) { Text($0).tag(Optional($0)) }
+                    }
                 }
-                Picker("Verification", selection: $store.radarVerification) {
-                    Text("All states").tag(VerificationState?.none)
-                    ForEach(VerificationState.allCases, id: \.self) { Text($0.rawValue).tag(Optional($0)) }
+                HStack(spacing: 10) {
+                    Picker("Freshness", selection: $store.radarFreshness) {
+                        ForEach(RadarFreshness.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                    .accessibilityLabel("Filter by freshness")
+                    RadarFilterPicker("Verification", selection: $store.radarVerification) {
+                        Text("Any state").tag(VerificationState?.none)
+                        ForEach(VerificationState.allCases, id: \.self) {
+                            Text($0.rawValue).tag(Optional($0))
+                        }
+                    }
+                    Spacer()
+                    StateLabel(
+                        text: "\(store.radarOpportunities.count) "
+                            + (store.radarOpportunities.count == 1 ? "match" : "matches")
+                    )
+                    Button("Clear filters") { store.clearRadarFilters() }
+                        .buttonStyle(SumiButtonStyle())
                 }
-                Button("Clear") {
-                    store.searchText = ""
-                    store.radarSource = nil
-                    store.radarVerification = nil
-                }
-                .buttonStyle(SumiButtonStyle())
             }
             Divider().overlay(SumiColor.ink)
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(store.visibleOpportunities) { OpportunityRow(opportunity: $0) }
+                    if store.radarOpportunities.isEmpty {
+                        ResearchEmptyState(
+                            title: store.activeOpportunities.isEmpty
+                                ? "Research data missing"
+                                : "Zero matches",
+                            message: store.activeOpportunities.isEmpty
+                                ? "Connect or refresh a source before relying on Live Radar."
+                                : "No collected evidence matches every selected filter."
+                        )
+                    } else {
+                        ForEach(store.radarOpportunities) { OpportunityRow(opportunity: $0) }
+                    }
                 }
             }
         }
         .padding(30)
         .sumiPage()
+        .onChange(of: store.searchFocusRequest) { _, _ in searchFocused = true }
     }
 }
 
@@ -266,11 +326,7 @@ struct TopicsView: View {
     @EnvironmentObject private var store: AppStore
     @State private var topicQuery = ""
 
-    var filtered: [Opportunity] {
-        topicQuery.isEmpty ? store.visibleOpportunities : store.visibleOpportunities.filter {
-            $0.title.localizedCaseInsensitiveContains(topicQuery) || $0.topicKey.localizedCaseInsensitiveContains(topicQuery)
-        }
-    }
+    private var result: TopicResearchResult { store.topicResearch(query: topicQuery) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -279,19 +335,183 @@ struct TopicsView: View {
                 title: "Topics",
                 subtitle: "Compare global evidence, creator coverage, and Arabic-market gaps."
             )
-            TextField("Research a topic across connected sources", text: $topicQuery)
-                .textFieldStyle(.plain)
-                .padding(10)
-                .overlay(Rectangle().stroke(SumiColor.ink, lineWidth: 1))
+            HStack(spacing: 10) {
+                TextField("Research a topic across every collected source", text: $topicQuery)
+                    .textFieldStyle(.plain)
+                    .padding(10)
+                    .overlay(Rectangle().stroke(SumiColor.ink, lineWidth: 1))
+                    .accessibilityLabel("Cross-source topic research query")
+                    .onSubmit {
+                        Task { await store.researchTopicAcrossConnectedSources(topicQuery) }
+                    }
+                Button(store.isResearchingTopic ? "Researching" : "Research connected sources") {
+                    Task { await store.researchTopicAcrossConnectedSources(topicQuery) }
+                }
+                .buttonStyle(SumiButtonStyle())
+                .disabled(
+                    topicQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        || store.isResearchingTopic
+                )
+                .accessibilityHint("Refresh every configured official provider and retain original evidence")
+                StateLabel(text: result.stateMessage)
+                if !topicQuery.isEmpty {
+                    Button("Clear") { topicQuery = "" }
+                        .buttonStyle(SumiButtonStyle())
+                }
+            }
             Divider().overlay(SumiColor.ink)
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(filtered) { OpportunityRow(opportunity: $0) }
+                LazyVStack(alignment: .leading, spacing: 14) {
+                    TopicCoverageLedger(coverage: result.sourceCoverage)
+                    switch result.state {
+                    case .prompt:
+                        ResearchEmptyState(
+                            title: "Research across six sources",
+                            message: result.stateMessage
+                        )
+                    case .missingData:
+                        ResearchEmptyState(title: "Research data missing", message: result.stateMessage)
+                    case .noMatches:
+                        ResearchEmptyState(title: "Zero matches", message: result.stateMessage)
+                    case .results:
+                        ForEach(result.evidence) { item in
+                            TopicEvidenceRow(item: item)
+                        }
+                        if !result.opportunities.isEmpty {
+                            SectionTitle("RELATED OPPORTUNITIES")
+                            ForEach(result.opportunities) { OpportunityRow(opportunity: $0) }
+                        }
+                    }
                 }
             }
         }
         .padding(30)
         .sumiPage()
+    }
+}
+
+private struct RadarFilterPicker<Selection: Hashable, Content: View>: View {
+    let title: String
+    @Binding var selection: Selection
+    @ViewBuilder let content: () -> Content
+
+    init(
+        _ title: String,
+        selection: Binding<Selection>,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.title = title
+        self._selection = selection
+        self.content = content
+    }
+
+    var body: some View {
+        Picker(title, selection: $selection, content: content)
+            .accessibilityLabel("Filter by \(title.lowercased())")
+    }
+}
+
+private struct ResearchEmptyState: View {
+    let title: String
+    let message: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title).font(SumiFont.display(21))
+            Text(message)
+                .font(SumiFont.body())
+                .foregroundStyle(SumiColor.mutedInk)
+        }
+        .frame(maxWidth: .infinity, minHeight: 130, alignment: .leading)
+        .padding(20)
+        .background(SumiColor.softPaper)
+        .overlay(Rectangle().stroke(SumiColor.rule, lineWidth: 1))
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private struct TopicCoverageLedger: View {
+    let coverage: [TopicSourceCoverage]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SectionTitle("SOURCE COVERAGE")
+            HStack(spacing: 8) {
+                ForEach(coverage) { source in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(source.group.rawValue.uppercased())
+                            .font(SumiFont.meta(8))
+                            .lineLimit(1)
+                        Text("\(source.matchingEvidenceCount) evidence")
+                            .font(SumiFont.body(11))
+                        Text(source.dataTruth.rawValue)
+                            .font(SumiFont.meta(8))
+                            .foregroundStyle(
+                                source.dataTruth.isAttentionRequired ? SumiColor.seal : SumiColor.mutedInk
+                            )
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(8)
+                    .background(SumiColor.softPaper)
+                    .overlay(Rectangle().stroke(SumiColor.rule, lineWidth: 1))
+                    .accessibilityElement(children: .combine)
+                }
+            }
+        }
+    }
+}
+
+private struct TopicEvidenceRow: View {
+    let item: SourceItem
+
+    private var direction: LayoutDirection {
+        ResearchTextDirection.resolve(languageCode: item.language, text: item.title) == .rightToLeft
+            ? .rightToLeft
+            : .leftToRight
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 14) {
+            Rectangle().fill(item.isOriginalSource ? SumiColor.seal : SumiColor.ink).frame(width: 2)
+            VStack(alignment: .leading, spacing: 7) {
+                HStack {
+                    StateLabel(text: item.group.rawValue)
+                    if item.isOriginalSource { StateLabel(text: "Original evidence", urgent: true) }
+                    Spacer()
+                    Text(item.publishedAt, format: .dateTime.month(.abbreviated).day().hour().minute())
+                        .font(SumiFont.meta(9))
+                        .foregroundStyle(SumiColor.mutedInk)
+                }
+                Link(destination: item.url) {
+                    Text(item.title)
+                        .font(SumiFont.display(18))
+                        .environment(\.layoutDirection, direction)
+                        .frame(
+                            maxWidth: .infinity,
+                            alignment: direction == .rightToLeft ? .trailing : .leading
+                        )
+                }
+                .foregroundStyle(SumiColor.ink)
+                Text(item.summary)
+                    .font(SumiFont.body())
+                    .foregroundStyle(SumiColor.mutedInk)
+                    .environment(\.layoutDirection, direction)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: direction == .rightToLeft ? .trailing : .leading
+                    )
+                Text("\(item.author) - \(item.country) - \(item.language)")
+                    .font(SumiFont.meta(9))
+                    .foregroundStyle(SumiColor.mutedInk)
+            }
+        }
+        .padding(.vertical, 12)
+        .overlay(alignment: .bottom) { Divider().overlay(SumiColor.rule) }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(
+            "\(item.isOriginalSource ? "Original evidence" : "Supporting evidence"), "
+                + "\(item.group.rawValue), \(item.title)"
+        )
     }
 }
 
@@ -341,55 +561,258 @@ struct WatchlistsView: View {
     @EnvironmentObject private var store: AppStore
     @State private var newValue = ""
     @State private var kind: WatchlistEntry.Kind = .keyword
+    @State private var selectedKind: WatchlistEntry.Kind?
+    @State private var editingEntry: WatchlistEntry?
+    @State private var pendingRemoval: WatchlistEntry?
+
+    private var visibleEntries: [WatchlistEntry] {
+        store.watchlist.filter { selectedKind == nil || $0.kind == selectedKind }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             LedgerHeader(
                 eyebrow: "Monitoring scope",
                 title: "Watchlists",
-                subtitle: "Creators, official sources, keywords, topics, countries, and languages."
+                subtitle: "Creators, official sources, companies, keywords, topics, countries, and languages."
             )
-            HStack {
+            HStack(spacing: 10) {
                 Picker("Type", selection: $kind) {
                     ForEach(WatchlistEntry.Kind.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                 }
-                TextField("Add a watchlist value", text: $newValue)
+                .frame(width: 150)
+                TextField(
+                    kind == .officialSource
+                        ? "https://source.example/feed"
+                        : "Add \(kind.rawValue.lowercased())",
+                    text: $newValue
+                )
                     .textFieldStyle(.plain)
                     .padding(9)
                     .overlay(Rectangle().stroke(SumiColor.ink, lineWidth: 1))
                 Button("Add") {
-                    guard !newValue.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-                    store.addWatchlist(kind: kind, value: newValue)
-                    newValue = ""
+                    if store.addWatchlist(kind: kind, value: newValue) { newValue = "" }
                 }
                 .buttonStyle(SumiButtonStyle(primary: true))
+                .keyboardShortcut(.return, modifiers: [])
+                .disabled(newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            if let error = store.watchlistError {
+                Text(error)
+                    .font(SumiFont.body(13))
+                    .foregroundStyle(SumiColor.seal)
+                    .accessibilityLabel("Watchlist error: \(error)")
             }
             Divider().overlay(SumiColor.ink)
-            List {
-                ForEach(store.watchlist) { entry in
-                    HStack {
-                        Text(entry.kind.rawValue.uppercased())
-                            .font(SumiFont.meta(9))
-                            .frame(width: 110, alignment: .leading)
-                        Text(entry.value).font(SumiFont.body())
-                        Spacer()
-                        Toggle(
-                            "High priority",
-                            isOn: Binding(
-                                get: { entry.highPriority },
-                                set: { store.setWatchlistPriority(id: entry.id, highPriority: $0) }
-                            )
-                        )
-                            .toggleStyle(.checkbox)
+
+            ScrollView(.horizontal) {
+                HStack(spacing: 8) {
+                    WatchlistFilterButton(
+                        title: "All",
+                        count: store.watchlist.count,
+                        selected: selectedKind == nil
+                    ) { selectedKind = nil }
+                    ForEach(WatchlistEntry.Kind.allCases, id: \.self) { entryKind in
+                        WatchlistFilterButton(
+                            title: entryKind.rawValue,
+                            count: store.watchlist.filter { $0.kind == entryKind }.count,
+                            selected: selectedKind == entryKind
+                        ) { selectedKind = entryKind }
                     }
-                    .padding(.vertical, 7)
                 }
-                .onDelete(perform: store.removeWatchlist)
             }
-            .listStyle(.plain)
+
+            if store.watchlist.isEmpty {
+                ResearchEmptyState(
+                    title: "No monitoring watchlists",
+                    message: "Add the first creator, source, company, keyword, topic, country, or language above."
+                )
+            } else if visibleEntries.isEmpty {
+                ResearchEmptyState(
+                    title: "No \(selectedKind?.rawValue.lowercased() ?? "matching") entries",
+                    message: "This watchlist category is intentionally empty."
+                )
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(visibleEntries) { entry in
+                            WatchlistLedgerRow(
+                                entry: entry,
+                                edit: { editingEntry = entry },
+                                remove: { pendingRemoval = entry },
+                                priorityChanged: {
+                                    store.setWatchlistPriority(id: entry.id, highPriority: $0)
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+
+            HStack {
+                StateLabel(
+                    text: store.watchlistSyncState,
+                    urgent: store.watchlistSyncState.contains("pending")
+                )
+                Spacer()
+                Text("\(visibleEntries.count) SHOWN / \(store.watchlist.count) TOTAL")
+                    .font(SumiFont.meta(9))
+                    .tracking(1)
+                    .foregroundStyle(SumiColor.mutedInk)
+            }
         }
         .padding(30)
         .sumiPage()
+        .sheet(item: $editingEntry) { entry in
+            WatchlistEditor(entry: entry).environmentObject(store)
+        }
+        .confirmationDialog(
+            "Remove this watchlist entry?",
+            isPresented: Binding(
+                get: { pendingRemoval != nil },
+                set: { if !$0 { pendingRemoval = nil } }
+            )
+        ) {
+            Button("Remove", role: .destructive) {
+                if let entry = pendingRemoval { store.removeWatchlist(id: entry.id) }
+                pendingRemoval = nil
+            }
+            Button("Cancel", role: .cancel) { pendingRemoval = nil }
+        } message: {
+            Text(pendingRemoval.map { "\"\($0.value)\" will stop being monitored." } ?? "")
+        }
+    }
+}
+
+private struct WatchlistFilterButton: View {
+    let title: String
+    let count: Int
+    let selected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text("\(title.uppercased()) \(count)")
+                .font(SumiFont.meta(9))
+                .tracking(0.7)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 7)
+                .foregroundStyle(selected ? SumiColor.paper : SumiColor.ink)
+                .background(selected ? SumiColor.ink : SumiColor.paper)
+                .overlay(Rectangle().stroke(SumiColor.ink, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(title), \(count) entries")
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
+    }
+}
+
+private struct WatchlistLedgerRow: View {
+    let entry: WatchlistEntry
+    let edit: () -> Void
+    let remove: () -> Void
+    let priorityChanged: (Bool) -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 14) {
+            Rectangle()
+                .fill(entry.highPriority ? SumiColor.seal : SumiColor.ink)
+                .frame(width: 2)
+            VStack(alignment: .leading, spacing: 7) {
+                HStack {
+                    Text(entry.kind.rawValue.uppercased())
+                        .font(SumiFont.meta(9))
+                        .tracking(1)
+                    if entry.highPriority { StateLabel(text: "High priority", urgent: true) }
+                }
+                Text(entry.value)
+                    .font(SumiFont.body(16))
+                    .textSelection(.enabled)
+                ForEach(entry.kind.connectorSupport) { support in
+                    Text("\(support.group.rawValue.uppercased()): \(support.level.rawValue)")
+                        .font(SumiFont.meta(8))
+                        .tracking(0.4)
+                        .foregroundStyle(
+                            support.level == .unsupported ? SumiColor.seal : SumiColor.mutedInk
+                        )
+                }
+            }
+            Spacer()
+            Toggle(
+                "High priority",
+                isOn: Binding(get: { entry.highPriority }, set: priorityChanged)
+            )
+            .toggleStyle(.checkbox)
+            .accessibilityLabel("High priority for \(entry.value)")
+            Button("Edit", action: edit)
+                .buttonStyle(SumiButtonStyle())
+                .accessibilityLabel("Edit \(entry.kind.rawValue) \(entry.value)")
+            Button("Remove", action: remove)
+                .buttonStyle(SumiButtonStyle(urgent: true))
+                .accessibilityLabel("Remove \(entry.kind.rawValue) \(entry.value)")
+        }
+        .padding(.vertical, 13)
+        .overlay(alignment: .bottom) { Divider().overlay(SumiColor.rule) }
+        .accessibilityElement(children: .contain)
+    }
+}
+
+private struct WatchlistEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var store: AppStore
+    let entry: WatchlistEntry
+    @State private var kind: WatchlistEntry.Kind
+    @State private var value: String
+    @State private var highPriority: Bool
+
+    init(entry: WatchlistEntry) {
+        self.entry = entry
+        _kind = State(initialValue: entry.kind)
+        _value = State(initialValue: entry.value)
+        _highPriority = State(initialValue: entry.highPriority)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            LedgerHeader(
+                eyebrow: "Monitoring scope",
+                title: "Edit watchlist",
+                subtitle: "Changes save locally first and synchronize through the private backend."
+            )
+            Divider().overlay(SumiColor.ink)
+            Picker("Type", selection: $kind) {
+                ForEach(WatchlistEntry.Kind.allCases, id: \.self) {
+                    Text($0.rawValue).tag($0)
+                }
+            }
+            TextField("Watchlist value", text: $value)
+                .textFieldStyle(.plain)
+                .padding(9)
+                .overlay(Rectangle().stroke(SumiColor.ink, lineWidth: 1))
+            Toggle("High priority", isOn: $highPriority).toggleStyle(.checkbox)
+            if let error = store.watchlistError {
+                Text(error).font(SumiFont.body(13)).foregroundStyle(SumiColor.seal)
+            }
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }.buttonStyle(SumiButtonStyle())
+                Button("Save changes") {
+                    if store.updateWatchlist(
+                        id: entry.id,
+                        kind: kind,
+                        value: value,
+                        highPriority: highPriority
+                    ) {
+                        dismiss()
+                    }
+                }
+                .buttonStyle(SumiButtonStyle(primary: true))
+            }
+        }
+        .padding(28)
+        .frame(width: 540)
+        .sumiPage()
+        .onAppear { store.watchlistError = nil }
     }
 }
 
@@ -464,6 +887,7 @@ struct NotificationsView: View {
 
 struct SettingsView: View {
     @EnvironmentObject private var store: AppStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ScrollView {
@@ -473,6 +897,24 @@ struct SettingsView: View {
                     title: "Sources & Settings",
                     subtitle: "Connection health, evidence, repair actions, refresh, and privacy."
                 )
+                SectionTitle("ACCESSIBILITY & KEYBOARD")
+                HStack {
+                    StateLabel(text: reduceMotion ? "Reduce Motion on" : "Reduce Motion off")
+                    Text(
+                        reduceMotion
+                            ? "Spatial movement and press scaling are disabled; written state changes remain immediate."
+                            : "Motion is restrained and brief. Turn on Reduce Motion in macOS to remove spatial movement."
+                    )
+                    .font(SumiFont.body())
+                    .foregroundStyle(SumiColor.mutedInk)
+                }
+                Text("Command 1-7 opens each section. Command F focuses Live Radar search. Command R refreshes research.")
+                    .font(SumiFont.body())
+                    .foregroundStyle(SumiColor.mutedInk)
+                    .accessibilityLabel(
+                        "Keyboard shortcuts: Command 1 through 7 open sections, "
+                            + "Command F focuses search, and Command R refreshes research."
+                    )
                 SectionTitle("NOTIFICATIONS")
                 VStack(alignment: .leading, spacing: 14) {
                     HStack {
@@ -834,7 +1276,15 @@ struct OpportunityDetailView: View {
                                 .foregroundStyle(opportunity.originalSource == nil ? SumiColor.sealDeep : SumiColor.healthy)
                         }
                         Divider().overlay(SumiColor.ink)
-                        Text(opportunity.brief).font(SumiFont.body(16))
+                        Text(opportunity.brief)
+                            .font(SumiFont.body(16))
+                            .environment(
+                                \.layoutDirection,
+                                ResearchTextDirection.resolve(
+                                    languageCode: opportunity.originalSource?.language,
+                                    text: opportunity.brief
+                                ) == .rightToLeft ? .rightToLeft : .leftToRight
+                            )
                         ScoreLedger(score: opportunity.score)
                         DetailSection(title: "ARABIC COVERAGE GAP", content: opportunity.coverageExplanation)
                         DetailSection(title: "EGYPT & GULF RELEVANCE", content: opportunity.regionalExplanation)
@@ -843,7 +1293,15 @@ struct OpportunityDetailView: View {
                             Link(destination: item.url) {
                                 HStack(alignment: .top) {
                                     VStack(alignment: .leading, spacing: 5) {
-                                        Text(item.title).font(SumiFont.body(14))
+                                        Text(item.title)
+                                            .font(SumiFont.body(14))
+                                            .environment(
+                                                \.layoutDirection,
+                                                ResearchTextDirection.resolve(
+                                                    languageCode: item.language,
+                                                    text: item.title
+                                                ) == .rightToLeft ? .rightToLeft : .leftToRight
+                                            )
                                         Text("\(item.group.rawValue.uppercased()) · \(item.author) · \(item.country) · \(item.language)")
                                             .font(SumiFont.meta(9))
                                             .foregroundStyle(SumiColor.mutedInk)
@@ -859,15 +1317,19 @@ struct OpportunityDetailView: View {
                         }
                         HStack {
                             Button("Save") { store.updateDisposition(.saved, id: opportunity.id) }
+                                .accessibilityLabel("Save opportunity")
                             Button("Watch") { store.updateDisposition(.watched, id: opportunity.id) }
+                                .accessibilityLabel("Watch opportunity")
                             Button("Dismiss") {
                                 store.updateDisposition(.dismissed, id: opportunity.id)
                                 dismiss()
                             }
+                            .accessibilityLabel("Dismiss opportunity")
                             Button("Mute") {
                                 store.updateDisposition(.muted, id: opportunity.id)
                                 dismiss()
                             }
+                            .accessibilityLabel("Mute opportunity")
                         }
                         .buttonStyle(SumiButtonStyle())
                     }

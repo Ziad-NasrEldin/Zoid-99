@@ -23,25 +23,36 @@ actor BackendResearchSync {
         self.connectors = connectors
     }
 
-    func synchronize() async -> [SourceSyncResult] {
-        let collections = await withTaskGroup(of: ConnectorCollection.self) { group in
-            for connector in connectors {
-                group.addTask { await connector.collect() }
+    func synchronize(
+        additionalConnectors: [GroupedSourceConnector] = []
+    ) async -> [SourceSyncResult] {
+        let plannedConnectors = connectors.map {
+            GroupedSourceConnector(group: .official, connector: $0)
+        } + additionalConnectors
+        let collections = await withTaskGroup(of: GroupedConnectorCollection.self) { group in
+            for planned in plannedConnectors {
+                group.addTask {
+                    GroupedConnectorCollection(
+                        group: planned.group,
+                        collection: await planned.connector.collect()
+                    )
+                }
             }
             return await group.reduce(into: []) { $0.append($1) }
         }
         let changedItems = collections
+            .map(\.collection)
             .filter { $0.state == .available || $0.state == .delayed }
             .flatMap(\.items)
-        let officialHealth = makeOfficialHealth(collections)
+        let sourceHealth = makeSourceHealth(collections)
 
         do {
             if !changedItems.isEmpty {
                 let output = ResearchPipeline().run(items: changedItems)
-                try await ingest(output: output, sourceHealth: allSourceHealth(official: officialHealth))
+                try await ingest(output: output, sourceHealth: sourceHealth)
             }
             guard let bootstrap = try await bootstrap() else {
-                return unchangedResults(official: officialHealth)
+                return unchangedResults(sourceHealth)
             }
             return results(from: bootstrap)
         } catch {
@@ -204,39 +215,57 @@ actor BackendResearchSync {
         return request
     }
 
-    private func makeOfficialHealth(_ collections: [ConnectorCollection]) -> APIHealth {
+    private func makeSourceHealth(_ grouped: [GroupedConnectorCollection]) -> [APIHealth] {
+        SourceGroup.allCases.map { group in
+            makeHealth(
+                group: group,
+                collections: grouped.filter { $0.group == group }.map(\.collection)
+            )
+        }
+    }
+
+    private func makeHealth(group: SourceGroup, collections: [ConnectorCollection]) -> APIHealth {
+        guard !collections.isEmpty else {
+            return APIHealth(
+                group: group,
+                state: .setupRequired,
+                lastActivity: nil,
+                evidence: "This source is not configured.",
+                repairAction: "Configure",
+                dataTruth: .missing
+            )
+        }
         let latest = collections.map(\.collectedAt).max()
-        let liveCount = collections.filter { $0.state == .available || $0.state == .delayed }.flatMap(\.items).count
+        let evidence = collections.map(\.evidence).joined(separator: " ")
         if collections.contains(where: {
             if case .rateLimited = $0.state { return true }
             return false
         }) {
-            return APIHealth(group: .official, state: .rateLimited, lastActivity: latest,
-                             evidence: collections.map(\.evidence).joined(separator: " "), repairAction: "Retry later",
+            return APIHealth(group: group, state: .rateLimited, lastActivity: latest,
+                             evidence: evidence, repairAction: "Retry later",
                              dataTruth: .rateLimited)
         }
-        if liveCount > 0 {
-            return APIHealth(group: .official, state: .connected, lastActivity: latest,
-                             evidence: "\(liveCount) official-feed items collected with source links and timestamps.",
+        if collections.contains(where: { $0.state == .available }) {
+            let liveCount = collections.filter { $0.state == .available }.flatMap(\.items).count
+            return APIHealth(group: group, state: .connected, lastActivity: latest,
+                             evidence: liveCount == 0 ? evidence : "\(liveCount) \(group.rawValue) items collected with source links and timestamps.",
                              repairAction: "Review", dataTruth: .live)
         }
+        if collections.contains(where: { $0.state == .delayed }) {
+            return APIHealth(group: group, state: .delayed, lastActivity: latest,
+                             evidence: evidence, repairAction: "Refresh", dataTruth: .delayed)
+        }
         if collections.allSatisfy({ $0.state == .notModified }) {
-            return APIHealth(group: .official, state: .connected, lastActivity: latest,
-                             evidence: "Official feeds are unchanged since the last successful collection.",
+            return APIHealth(group: group, state: .connected, lastActivity: latest,
+                             evidence: "\(group.rawValue) is unchanged since the last successful collection.",
                              repairAction: "Review", dataTruth: .cached)
         }
-        return APIHealth(group: .official, state: .unavailable, lastActivity: latest,
-                         evidence: collections.map(\.evidence).joined(separator: " "), repairAction: "Retry",
-                         dataTruth: .unavailable)
-    }
-
-    private func allSourceHealth(official: APIHealth) -> [APIHealth] {
-        SourceGroup.allCases.map { group in
-            group == .official ? official : APIHealth(
-                group: group, state: .setupRequired, lastActivity: nil,
-                evidence: "This source is not configured.", repairAction: "Configure", dataTruth: .missing
-            )
-        }
+        let setupRequired = evidence.localizedCaseInsensitiveContains("setup required")
+            || evidence.localizedCaseInsensitiveContains("credential")
+            || evidence.localizedCaseInsensitiveContains("not configured")
+        return APIHealth(group: group, state: setupRequired ? .setupRequired : .unavailable, lastActivity: latest,
+                         evidence: evidence, repairAction: setupRequired ? "Configure" : "Retry",
+                         dataTruth: setupRequired ? .missing : .unavailable)
     }
 
     private func results(from bootstrap: BootstrapResponse) -> [SourceSyncResult] {
@@ -253,14 +282,19 @@ actor BackendResearchSync {
         }
     }
 
-    private func unchangedResults(official: APIHealth) -> [SourceSyncResult] {
-        allSourceHealth(official: official).map {
+    private func unchangedResults(_ sourceHealth: [APIHealth]) -> [SourceSyncResult] {
+        sourceHealth.map {
             SourceSyncResult(
                 group: $0.group, collectedAt: $0.lastActivity ?? .now, items: [],
                 state: $0.state, dataTruth: $0.dataTruth, evidence: $0.evidence
             )
         }
     }
+}
+
+private struct GroupedConnectorCollection: Sendable {
+    let group: SourceGroup
+    let collection: ConnectorCollection
 }
 
 private enum SyncError: LocalizedError {

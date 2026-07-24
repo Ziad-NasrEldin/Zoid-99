@@ -2,6 +2,7 @@ import { buildApi } from "./api.js";
 import { loadConfig } from "./config.js";
 import { reportMonitoringEvent } from "./monitoring.js";
 import { collectOfficialSources } from "./official-collector.js";
+import { collectWatchlist } from "./watchlist-collector.js";
 import { createPool, PostgreSqlRepository } from "./postgres.js";
 import { EncryptedConfigService } from "./encrypted-config.js";
 import { SecretCipher } from "./security.js";
@@ -13,6 +14,15 @@ const pool = createPool(config.databaseUrl);
 const repository = new PostgreSqlRepository(pool);
 const encryptedConfig = new EncryptedConfigService(repository, new SecretCipher(config.encryptionKey));
 const connectionService = new ServerConnectionService(encryptedConfig);
+const youtubeCredential = process.env.ZOID99_YOUTUBE_API_KEY ?? process.env.ZOID99_YOUTUBE_OAUTH_ACCESS_TOKEN;
+const xCredential = process.env.ZOID99_X_BEARER_TOKEN;
+const instagramCredential = process.env.ZOID99_INSTAGRAM_ACCOUNT_ID && process.env.ZOID99_INSTAGRAM_ACCESS_TOKEN
+  ? JSON.stringify({
+      accountID: process.env.ZOID99_INSTAGRAM_ACCOUNT_ID,
+      accessToken: process.env.ZOID99_INSTAGRAM_ACCESS_TOKEN,
+      graphAPIVersion: process.env.ZOID99_INSTAGRAM_GRAPH_API_VERSION,
+    })
+  : undefined;
 const app = buildApi({
   repository,
   apiToken: config.apiToken,
@@ -25,17 +35,42 @@ const scheduler = new CollectionScheduler({
   intervalMilliseconds: config.collectionIntervalSeconds * 1_000,
   runCollection: async () => {
     const startedAt = Date.now();
-    await collectOfficialSources({ repository });
+    const officialResult = await settleCollection(() => collectOfficialSources({ repository }));
+    const watchlistResult = await settleCollection(
+      () => collectWatchlist({
+        repository,
+        credentialStore: encryptedConfig,
+        credentials: {
+          ...(youtubeCredential ? { youtube: youtubeCredential } : {}),
+          ...(xCredential ? { x: xCredential } : {}),
+          ...(instagramCredential ? { instagram: instagramCredential } : {}),
+        },
+      }),
+    );
+    const officialFailed = officialResult.status === "rejected";
+    const watchlistFailed = watchlistResult.status === "rejected";
+    if (officialFailed || watchlistFailed) {
+      app.log.error({
+        event: "collection_cycle_partial",
+        durationMilliseconds: Date.now() - startedAt,
+        official: officialResult.status,
+        watchlist: watchlistResult.status,
+      }, "Collection cycle completed with one or more failed collectors");
+      const failedCount = Number(officialFailed) + Number(watchlistFailed);
+      throw new Error(`${failedCount} collection collector${failedCount === 1 ? "" : "s"} failed`);
+    }
     app.log.info({
       event: "collection_cycle_completed",
       durationMilliseconds: Date.now() - startedAt,
-    }, "Official-source collection cycle completed");
+      official: officialResult.value,
+      watchlist: watchlistResult.value,
+    }, "Official and watchlist collection cycle completed");
   },
   onError: (error) => {
     app.log.error({
       event: "collection_cycle_failed",
       errorType: error instanceof Error ? error.name : "UnknownError",
-    }, "Official-source collection cycle failed");
+    }, "Collection cycle failed");
     void reportMonitoringEvent({
       endpoint: config.errorMonitoringWebhookUrl,
       event: "collection_cycle_failed",
@@ -43,6 +78,14 @@ const scheduler = new CollectionScheduler({
     }).catch(() => app.log.warn({ event: "monitoring_delivery_failed" }, "Monitoring event delivery failed"));
   },
 });
+
+async function settleCollection<T>(task: () => Promise<T>): Promise<PromiseSettledResult<T>> {
+  try {
+    return { status: "fulfilled", value: await task() };
+  } catch (reason) {
+    return { status: "rejected", reason };
+  }
+}
 
 async function shutdown(signal: string): Promise<void> {
   app.log.info({ signal }, "Stopping backend");

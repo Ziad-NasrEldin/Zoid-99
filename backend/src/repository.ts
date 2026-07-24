@@ -25,6 +25,8 @@ export interface ResearchRepository {
   ): Promise<OpportunityDispositionState | null>;
   listWatchlist(): Promise<WatchlistEntry[]>;
   createWatchlist(input: Omit<WatchlistEntry, "id">): Promise<WatchlistEntry>;
+  updateWatchlist(id: string, input: Omit<WatchlistEntry, "id">): Promise<WatchlistEntry | null>;
+  replaceWatchlist(entries: WatchlistEntry[]): Promise<WatchlistEntry[]>;
   deleteWatchlist(id: string): Promise<boolean>;
   listNotifications(): Promise<NotificationRecord[]>;
   markNotificationRead(id: string, isRead: boolean): Promise<NotificationRecord | null>;

@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
 import { XMLParser } from "fast-xml-parser";
 import type { ResearchBatch, SourceHealth } from "./domain.js";
+import { readBoundedResponse } from "./outbound-http.js";
 import type { ResearchRepository } from "./repository.js";
 
-type CatalogSource = {
+export type CatalogSource = {
   id: string;
   name: string;
   kind: "rss" | "atom" | "github";
@@ -11,7 +12,7 @@ type CatalogSource = {
   homepage: string;
 };
 
-type CollectedRecord = {
+export type CollectedRecord = {
   externalID: string;
   title: string;
   summary: string;
@@ -51,11 +52,20 @@ export type OfficialCollectorOptions = {
   catalog?: CatalogSource[];
 };
 
-export async function collectOfficialSources(options: OfficialCollectorOptions): Promise<void> {
+interface OfficialCollectionResult {
+  requests: number;
+  successful: number;
+  accepted: number;
+  failures: number;
+  rateLimited: boolean;
+}
+
+export async function collectOfficialSources(options: OfficialCollectorOptions): Promise<OfficialCollectionResult> {
   const fetchImplementation = options.fetchImplementation ?? fetch;
   const now = options.now ?? (() => new Date());
   const catalog = options.catalog ?? officialSourceCatalog;
   const collectedAt = now().toISOString();
+  let successful = 0;
   let accepted = 0;
   let failures = 0;
   let rateLimited = false;
@@ -76,9 +86,11 @@ export async function collectOfficialSources(options: OfficialCollectorOptions):
         failures += 1;
         continue;
       }
+      successful += 1;
+      const body = await readBoundedResponse(response);
       const records = source.kind === "github"
-        ? parseGitHubReleases(await response.json())
-        : parseSyndication(await response.text(), source.kind);
+        ? parseGitHubReleases(JSON.parse(body))
+        : parseSyndication(body, source.kind);
       for (const record of records.slice(0, 30)) {
         await options.repository.persistResearchBatch(toResearchBatch(source, record, collectedAt, now()));
         accepted += 1;
@@ -88,12 +100,12 @@ export async function collectOfficialSources(options: OfficialCollectorOptions):
     }
   }
 
-  const health: SourceHealth = accepted > 0
+  const health: SourceHealth = successful > 0
     ? {
         group: "US & Official",
         state: failures > 0 ? "Delayed" : "Connected",
         lastActivity: collectedAt,
-        evidence: `${accepted} official-source item${accepted === 1 ? "" : "s"} collected; ${failures} source failure${failures === 1 ? "" : "s"}.`,
+        evidence: `${successful} official source${successful === 1 ? "" : "s"} responded; ${accepted} item${accepted === 1 ? "" : "s"} collected; ${failures} source failure${failures === 1 ? "" : "s"}.`,
         repairAction: failures > 0 ? "Review source logs" : "Review",
         dataTruth: failures > 0 ? "Delayed" : "Live",
       }
@@ -106,7 +118,8 @@ export async function collectOfficialSources(options: OfficialCollectorOptions):
         dataTruth: rateLimited ? "Rate limited" : "Unavailable",
       };
   await options.repository.upsertSourceHealth(health);
-  if (accepted === 0) throw new Error("No official-source items were collected");
+  if (successful === 0) throw new Error("No official sources responded successfully");
+  return { requests: catalog.length, successful, accepted, failures, rateLimited };
 }
 
 function parseGitHubReleases(value: unknown): CollectedRecord[] {
@@ -132,7 +145,7 @@ function parseGitHubReleases(value: unknown): CollectedRecord[] {
   });
 }
 
-function parseSyndication(xml: string, kind: "rss" | "atom"): CollectedRecord[] {
+export function parseSyndication(xml: string, kind: "rss" | "atom"): CollectedRecord[] {
   const parser = new XMLParser({
     ignoreAttributes: false,
     processEntities: false,

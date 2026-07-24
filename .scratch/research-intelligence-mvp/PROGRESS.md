@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: ready-for-human
 
 # Research Intelligence MVP Progress
 
@@ -13,9 +13,9 @@ Provider credentials must use macOS Keychain or encrypted server configuration a
 
 ## Evidence standard
 
-`integrated` means the implementation is present in the production integration branch created from baseline `79503ff`.
-`active` means implementation is still underway in a named task thread.
-`remaining` means no complete implementation commit was found.
+`integrated` means the implementation is present in release branch `codex/zoid-99-mvp-release-completion`, based on verified production integration `d90244f`.
+`external` means the product path is implemented but final proof requires credentials, an account approval, or an authorized external host.
+`remaining` means product implementation is still missing.
 Tests prove deterministic behavior, not live provider functionality.
 The combined baseline has live end-to-end proof for the credential-free official-feed flow through backend storage and the native Today surface.
 YouTube, Google Trends, X, Instagram, and live AI analysis remain unproved with real credentials.
@@ -37,10 +37,16 @@ YouTube, Google Trends, X, Instagram, and live AI analysis remain unproved with 
 | Opportunity disposition persistence | integrated | Original `96a44b7`, integration `453c005`; Swift and fresh-PostgreSQL reconciliation tests pass |
 | External provider connections and repair | integrated | Original `c4b0f4d`, integration `cd21a81`; native repair proof and secure-boundary tests pass, with no credentialed provider claimed live |
 | Native notification delivery | integrated | Original `4e368fe`, integration `f933f6a`; settings, history, and packaged deep-link proof pass, while macOS permission acceptance remains |
-| Always-on backend operations | integrated | Original `70806c5`, integration `6116f85`; scheduler, monitoring, secret rotation, and production configuration are deterministic-tested, while hosted Mac-sleep proof remains |
+| Always-on backend operations | integrated | Original `70806c5`, integration `6116f85`; each scheduler cycle now reads the persisted Watchlist, collects official feeds, plans every supported country/language query, gates official provider APIs on server credentials, preserves unverified social evidence truth, and retains monitoring/rotation readiness, while hosted Mac-sleep proof remains |
 | macOS release packaging | integrated | Originals `652157a` and `deaa475`, integrations `3a65154` and `2c3e987`; universal unsigned bundle identity, centered icon, metadata, archive, and deep-link registration are verified |
+| Radar filters and Topics research recovery | integrated | Recovered deliberately from orphaned commit `fc7ee3be6b365274823f0905ea001bcb55014ca1`; source, topic, country, language, freshness, and verification filters plus an explicit normalized connected-source query, original evidence, timestamps, and truthful empty states are covered by focused tests and native proof |
+| Editable production Watchlists recovery | integrated | Recovered deliberately from orphaned commit `ccf8353bd9f69124e5f020f8fd0bf7a0a7f6d3d5`; all seven watchlist kinds, add/edit/remove, priority, persisted pending-sync truth, canonical backend pull-before-push reconciliation, connector input planning, and provider-truth labels are covered by Swift and fresh-PostgreSQL tests plus restart proof; its conflicting migration `002` was integrated as `005_watchlist_companies.sql` |
+| Release 0.2.0 completion | integrated | Keyboard commands, VoiceOver actions, text-only RTL, Reduce Motion QA, source and menu-bar health, portable uptime checks, reproducible universal packaging, and native proof are complete; signing, notarization, credentialed providers, external deployment, and the real sleep/wake pilot remain external |
 
-No named implementation task remains active as of this update.
+Detached snapshot `d760b661a49259475aed8b01798a96e833f32a15` was inspected and rejected because it contains only generated `.codegraph`, `.qa`, and old proof artifacts, with no unique tracked product behavior.
+The dirty main checkout was inspected without modification.
+Valid motion and accessibility ideas were retained where they matched `DESIGN.md`, `MOTION.md`, and the six-source authoritative PRD.
+Conflicting changes that removed X, reduced six sources to five, made the backend optional, or eliminated always-on monitoring were explicitly rejected.
 
 ## All 38 user stories
 
@@ -50,7 +56,7 @@ No named implementation task remains active as of this update.
 | 2. Detect important AI developments quickly | integrated | Combined official-feed collection, bounded backend sync, strict clustering, and time-aware analysis are validated together. |
 | 3. Monitor official sources | integrated | Credential-free RSS, Atom, and GitHub Releases are on main in `78986e0`; separate live connector proof was reported. |
 | 4. Monitor selected US creators | integrated | YouTube and X connector contracts are integrated; no credentialed live proof is claimed. |
-| 5. Monitor selected Arabic creators | integrated | YouTube, X, and Instagram connector support is integrated; editable production watchlists and live proof remain. |
+| 5. Monitor selected Arabic creators | integrated | YouTube, X, and Instagram connector support and editable production watchlists are integrated; credentialed provider proof remains external. |
 | 6. Collect YouTube videos and search signals | integrated | Contract tests pass, but no YouTube credentials were available. |
 | 7. Compare Google Trends countries | integrated | The official alpha provider contract is integrated, with no approved live access. |
 | 8. Collect permitted Instagram references | integrated | The supported professional-account boundary is integrated, with no Meta token proof. |
@@ -67,26 +73,44 @@ No named implementation task remains active as of this update.
 | 19. Explain Egypt and Gulf relevance | integrated | Regional evidence for Egypt, Saudi Arabia, UAE, and Oman is integrated; live AI evaluation remains credential-gated. |
 | 20. Show a daily Today briefing | integrated | Native proof shows 88 live official-feed opportunities in Today with durable cached state. |
 | 21. Show a chronological Live Radar | integrated | Radar is integrated; complete live multi-source data still depends on provider credentials. |
-| 22. Filter Radar by source, topic, country, language, freshness, and verification | remaining | No complete filter implementation commit found; see issue 003. |
-| 23. Research a topic across connected sources | remaining | Topic surface exists, but complete cross-source query behavior was not evidenced; see issue 003. |
+| 22. Filter Radar by source, topic, country, language, freshness, and verification | integrated | Recovered commit `fc7ee3b` was ported deliberately and reconciled with current state; focused tests and `docs/proof/release-0.2.0-radar-filters.jpeg` prove all required controls. |
+| 23. Research a topic across connected sources | integrated | The explicit research action refreshes configured official providers through the normalized connector contract, merges original evidence, retains links and timestamps, and distinguishes prompt, no matches, and missing data; focused tests and evidence/empty-state screenshots prove the visible flow. |
 | 24. Save, watch, dismiss, or mute an Opportunity | integrated | Backend persistence, offline reconciliation, restart behavior, and Today/Radar projection are integrated and verified on fresh PostgreSQL. |
-| 25. Manage monitoring watchlists | remaining | Local watchlist foundations exist on main, but the full editable set and provider wiring are incomplete; see issue 004. |
+| 25. Manage monitoring watchlists | integrated | Recovered commit `ccf8353` was ported deliberately with migration renumbered to `005`; all seven kinds support validated add/edit/remove, priority, persisted offline mutations, canonical backend pull-before-push reconciliation, connector inputs for each officially supported provider query, and truthful unsupported or collected-evidence labels. |
 | 26. Send immediate high-priority alerts | integrated | Native scheduling, durable deduplication, quiet-hour deferral, and exact-opportunity deep links are integrated; macOS permission acceptance remains a live gate. |
 | 27. Group lower-priority developments into digests | integrated | Grouped scheduling and durable per-opportunity history are integrated; macOS permission acceptance remains a live gate. |
 | 28. Show source-connection health | integrated | The native ledger now composes real sync truth with written provider state, retained evidence, and one repair action; credentialed provider proof remains. |
 | 29. Configure notification and refresh preferences | integrated | Persisted opt-in, permission truth, quiet hours, digest time, and refresh preferences are integrated and native-proofed. |
-| 30. Monitor while the Mac sleeps | remaining | The server scheduler and operations package are integrated, but no production host or Mac-off collection proof has been authorized. |
+| 30. Monitor while the Mac sleeps | external | The backend scheduler reads the persisted Watchlist and runs fixed and user-selected official/provider collection independently of the Mac app; health, readiness, backup/restore, deployment, rollback, and monitoring paths are implemented, while a real reachable production host and authorized sleep/wake pilot are still required. |
 | 31. Store credentials securely | integrated | Keychain and encrypted-server boundaries, validation-before-storage, removal, redacted logs, and encryption-key rotation are deterministic-tested; no live provider credential is claimed. |
 | 32. Retain source links in every Research Brief | integrated | Citation enforcement and evaluation coverage are integrated with retained source links. |
 | 33. Use a calm ledger interface | integrated | Main SwiftUI shell implements the Sumi-Ink ledger direction at `5aba082`; final visual acceptance remains human-reviewed. |
 | 34. Pair important states with written labels | integrated | Main includes written state labels and deterministic coverage at `5aba082`. |
-| 35. Support keyboard and VoiceOver workflows | remaining | No complete accessibility implementation and native acceptance report found. |
-| 36. Follow macOS Reduce Motion | integrated | Shared motion policy and deterministic coverage are on main; full native QA remains in issue 010. |
-| 37. Provide a Source Health Ledger | integrated | Ledger UI is on main; production evidence and repair actions depend on `200f5ee` and issue 006. |
-| 38. Render Arabic research right to left | remaining | Main retains Arabic language direction signals, but full mixed Arabic-English native QA was not evidenced. |
+| 35. Support keyboard and VoiceOver workflows | integrated | Command-1 through Command-7 navigation, Command-F search, Command-R refresh, meaningful labels, actions, values, and edit/remove descriptions are implemented, tested, and inspected through the native accessibility tree. |
+| 36. Follow macOS Reduce Motion | integrated | Shared motion policy gates press motion, the launched packaged app truthfully reports the current system setting, and native proof covers the Reduce Motion enabled state. |
+| 37. Provide a Source Health Ledger | integrated | The native ledger and menu-bar item show six-source health, last refresh, cached/live truth, and one refresh or repair action; deterministic and native proof are complete, while credentialed source checks remain external. |
+| 38. Render Arabic research right to left | integrated | Arabic research text is right to left while mixed evidence and application controls keep their correct order; deterministic coverage and native proof are complete. |
+
+## Release 0.2.0 validation record
+
+Swift completed 84 tests with 79 passed, 5 explicit opt-in live skips, and 0 failures.
+The release Swift build passed.
+The credential-free live official-feed check passed and collected 30 OpenAI News, 30 Hugging Face Releases, and 30 arXiv items.
+Backend check, build, and audit passed with 0 high-severity vulnerabilities.
+Backend completed 46 tests with 39 passed and 7 PostgreSQL skips in the ordinary suite.
+All 46 backend tests passed against a fresh PostgreSQL database after migrations `001` through `005`.
+Rollback migrations `003` through `005` ran in reverse order, migration `005` archived an existing Company row, all three reapplied successfully, and all 46 tests then passed with zero skips.
+Outbound official-source collection rejects private, loopback, link-local, and non-HTTPS targets, revalidates every redirect with pinned public DNS, caps response size, and distinguishes a healthy zero-result response from an unavailable source.
+A custom-format PostgreSQL backup was checksummed and restored into a fresh database with all five migrations.
+Health, readiness, authenticated bootstrap, portable uptime checks, and a 45-second local always-on observation passed.
+Shellcheck, Zsh syntax, credential scan, conflict scan, `git diff --check`, bundle metadata, deep link, and universal architecture verification passed.
+The arm64 and x86_64 package was built twice with identical SHA-256 `9ab0046c0af9b9da09914276786d4421f767976f98579df225c7ea401dc58c06`.
+The unsigned artifact is `.build/release-artifacts/Zoid-99-0.2.0-unsigned.zip`.
+The final packaged application launched successfully.
 
 ## Next sequence
 
-1. Complete Radar/topic research, editable monitoring controls, accessibility, RTL, and Reduce Motion acceptance through issues 003, 004, and 010.
-2. Complete credentialed provider checks, macOS notification permission acceptance, hosted Mac-sleep proof, Developer ID signing, and notarization through issues 002, 006, 007, 008, 009, and 011.
-3. Run the credentialed multi-day pilot in issue 012 before calling the MVP live.
+1. Provide approved YouTube, owned YouTube OAuth/comments, Google Trends alpha, X, Instagram/Meta, AI, and production-backend credentials for opt-in live validation.
+2. Authorize a production host and PostgreSQL target, then run real deploy, rollback, monitoring, and Mac sleep/wake proof against its reachable URL.
+3. Provide a Developer ID Application identity and notary Keychain profile, install the signed build, accept notification permission, and validate the notification deep link.
+4. Run the credentialed multi-day pilot in issue 012 before calling the MVP live.
