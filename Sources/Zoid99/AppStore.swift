@@ -18,6 +18,7 @@ final class AppStore: ObservableObject {
     @Published var radarCountry: String?
     @Published var radarLanguage: String?
     @Published var radarFreshness: RadarFreshness = .any
+    @Published private(set) var radarSort: OpportunitySort
     @Published var searchText = ""
     @Published var searchFocusRequest = 0
     @Published var setupComplete = false
@@ -49,6 +50,7 @@ final class AppStore: ObservableObject {
     private let now: @Sendable () -> Date
     private let connectionService: any ProviderConnectionServicing
     private let notificationDelivery: any NotificationDelivering
+    private let sortDefaults: UserDefaults
     private var scheduledRefreshTask: Task<Void, Never>?
     private var isSyncingWatchlist = false
     private var watchlistNeedsSync = false
@@ -61,6 +63,7 @@ final class AppStore: ObservableObject {
         now: @escaping @Sendable () -> Date = { .now },
         connectionService: any ProviderConnectionServicing = LocalProviderConnectionService(),
         notificationDelivery: any NotificationDelivering = UnavailableNotificationDelivery(),
+        sortDefaults: UserDefaults = .standard,
         loadDemoDataWhenEmpty: Bool = true
     ) {
         self.persistence = persistence
@@ -70,6 +73,10 @@ final class AppStore: ObservableObject {
         self.now = now
         self.connectionService = connectionService
         self.notificationDelivery = notificationDelivery
+        self.sortDefaults = sortDefaults
+        self.radarSort = OpportunitySort(
+            rawValue: sortDefaults.string(forKey: OpportunitySort.storageKey) ?? ""
+        ) ?? .totalScore
         do {
             if let stored = try persistence.load() {
                 applyStoredState(stored)
@@ -129,7 +136,7 @@ final class AppStore: ObservableObject {
     }
 
     var radarOpportunities: [Opportunity] {
-        activeOpportunities.filter { opportunity in
+        radarSort.sorted(activeOpportunities.filter { opportunity in
             guard opportunity.disposition != .dismissed, opportunity.disposition != .muted else { return false }
             let sourceMatch = radarSource.map { source in opportunity.items.contains { $0.group == source } } ?? true
             let verificationMatch = radarVerification.map { $0 == opportunity.verification } ?? true
@@ -152,7 +159,7 @@ final class AppStore: ObservableObject {
                 }
             return sourceMatch && verificationMatch && topicMatch && countryMatch
                 && languageMatch && freshnessMatch && searchMatch
-        }
+        })
     }
 
     var radarCountries: [String] {
@@ -172,6 +179,15 @@ final class AppStore: ObservableObject {
         radarLanguage = nil
         radarFreshness = .any
         statusMessage = "Radar filters cleared"
+    }
+
+    func setRadarSort(_ sort: OpportunitySort) {
+        radarSort = sort
+        sortDefaults.set(sort.rawValue, forKey: OpportunitySort.storageKey)
+    }
+
+    func resetRadarSort() {
+        setRadarSort(.totalScore)
     }
 
     func requestSearchFocus() {
