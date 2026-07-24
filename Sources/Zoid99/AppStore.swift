@@ -29,6 +29,10 @@ final class AppStore: ObservableObject {
     @Published var quietStartHour = 22
     @Published var quietEndHour = 8
     @Published var digestHour = 18
+    @Published var discordEnabled = false
+    @Published var discordHighPriorityEnabled = true
+    @Published private(set) var discordConfigured = false
+    @Published private(set) var discordStatus: DiscordDeliveryStatus = .notConfigured
     @Published var statusMessage = "Ready"
     @Published var isRefreshing = false
     @Published var isResearchingTopic = false
@@ -50,6 +54,7 @@ final class AppStore: ObservableObject {
     private let now: @Sendable () -> Date
     private let connectionService: any ProviderConnectionServicing
     private let notificationDelivery: any NotificationDelivering
+    private let discordService: any DiscordNotificationServicing
     private let sortDefaults: UserDefaults
     private var scheduledRefreshTask: Task<Void, Never>?
     private var isSyncingWatchlist = false
@@ -63,6 +68,7 @@ final class AppStore: ObservableObject {
         now: @escaping @Sendable () -> Date = { .now },
         connectionService: any ProviderConnectionServicing = LocalProviderConnectionService(),
         notificationDelivery: any NotificationDelivering = UnavailableNotificationDelivery(),
+        discordService: any DiscordNotificationServicing = DiscordNotificationService(),
         sortDefaults: UserDefaults = .standard,
         loadDemoDataWhenEmpty: Bool = true
     ) {
@@ -73,6 +79,7 @@ final class AppStore: ObservableObject {
         self.now = now
         self.connectionService = connectionService
         self.notificationDelivery = notificationDelivery
+        self.discordService = discordService
         self.sortDefaults = sortDefaults
         self.radarSort = OpportunitySort(
             rawValue: sortDefaults.string(forKey: OpportunitySort.storageKey) ?? ""
@@ -259,6 +266,7 @@ final class AppStore: ObservableObject {
             opportunities = output.opportunities.map(applyingStoredDisposition)
             comments = output.comments
             await processNotifications(output.notifications)
+            await processDiscordNotifications()
             lastSuccessfulSyncAt = results.map(\.collectedAt).max()
         }
 
@@ -606,6 +614,80 @@ final class AppStore: ObservableObject {
         persistReportingFailure()
     }
 
+    func refreshDiscordConfigurationStatus() async {
+        discordConfigured = await discordService.isConfigured()
+        discordStatus = discordConfigured
+            ? (discordEnabled ? .ready : .disabled)
+            : .notConfigured
+    }
+
+    func configureDiscordWebhook(_ value: String) async {
+        discordStatus = .validating
+        do {
+            try await discordService.configure(value)
+            discordConfigured = true
+            discordStatus = discordEnabled ? .ready : .disabled
+            statusMessage = "Discord webhook validated and saved in macOS Keychain"
+        } catch {
+            discordConfigured = await discordService.isConfigured()
+            discordStatus = .failed(
+                (error as? LocalizedError)?.errorDescription
+                    ?? "Discord validation failed safely."
+            )
+            statusMessage = "Discord webhook was not saved"
+        }
+    }
+
+    func removeDiscordWebhook() async {
+        do {
+            try await discordService.remove()
+            discordConfigured = false
+            discordEnabled = false
+            settings.discordEnabled = false
+            discordStatus = .notConfigured
+            statusMessage = "Discord webhook removed from macOS Keychain"
+            persistReportingFailure()
+        } catch {
+            discordStatus = .failed("The Discord webhook could not be removed from macOS Keychain.")
+        }
+    }
+
+    func setDiscordEnabled(_ enabled: Bool) {
+        discordEnabled = enabled && discordConfigured
+        settings.discordEnabled = discordEnabled
+        discordStatus = discordConfigured
+            ? (discordEnabled ? .ready : .disabled)
+            : .notConfigured
+        statusMessage = enabled && !discordConfigured
+            ? "Save and validate a Discord webhook first"
+            : discordEnabled ? "Discord delivery enabled" : "Discord delivery disabled"
+        persistReportingFailure()
+    }
+
+    func setDiscordHighPriorityEnabled(_ enabled: Bool) {
+        discordHighPriorityEnabled = enabled
+        settings.discordHighPriorityEnabled = enabled
+        persistReportingFailure()
+    }
+
+    func sendDiscordTest() async {
+        guard discordConfigured else {
+            discordStatus = .notConfigured
+            return
+        }
+        do {
+            try await discordService.send(.test)
+            discordStatus = .delivered(now())
+            statusMessage = "Discord test delivered"
+        } catch {
+            discordStatus = .failed(
+                (error as? LocalizedError)?.errorDescription
+                    ?? "Discord test failed safely."
+            )
+            statusMessage = "Discord test was not delivered"
+        }
+    }
+
     func openNotificationDeepLink(_ url: URL) {
         guard url.scheme == "zoid99",
               url.host == "opportunity",
@@ -720,6 +802,20 @@ final class AppStore: ObservableObject {
         quietStartHour = settings.quietStartHour
         quietEndHour = settings.quietEndHour
         digestHour = settings.digestHour
+        discordEnabled = settings.discordEnabled
+        discordHighPriorityEnabled = settings.discordHighPriorityEnabled
+    }
+
+    private func processDiscordNotifications() async {
+        let result = await DiscordNotificationCoordinator(service: discordService).process(
+            opportunities: discordHighPriorityEnabled ? opportunities : [],
+            enabled: discordEnabled,
+            deliveredOpportunityIDs: settings.discordDeliveredOpportunityIDs,
+            now: now()
+        )
+        settings.discordDeliveredOpportunityIDs =
+            Set(result.deliveredOpportunityIDs.sorted { $0.uuidString < $1.uuidString }.suffix(1_000))
+        discordStatus = result.status
     }
 
     private func recordSourceHealth(_ results: [SourceSyncResult]) {
@@ -953,6 +1049,8 @@ final class AppStore: ObservableObject {
         settings.quietStartHour = quietStartHour
         settings.quietEndHour = quietEndHour
         settings.digestHour = digestHour
+        settings.discordEnabled = discordEnabled
+        settings.discordHighPriorityEnabled = discordHighPriorityEnabled
         try persistence.save(
             ResearchState(
                 sourceItems: sourceItems,
