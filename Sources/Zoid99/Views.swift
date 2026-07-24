@@ -289,6 +289,23 @@ struct RadarView: View {
                             Text($0.rawValue).tag(Optional($0))
                         }
                     }
+                    Picker(
+                        "Sort",
+                        selection: Binding(
+                            get: { store.radarSort },
+                            set: { store.setRadarSort($0) }
+                        )
+                    ) {
+                        ForEach(OpportunitySort.allCases) { sort in
+                            Text(sort.title).tag(sort)
+                        }
+                    }
+                    .accessibilityLabel("Sort Live Radar opportunities")
+                    .fixedSize(horizontal: true, vertical: false)
+                    Button("Reset sort") { store.resetRadarSort() }
+                        .buttonStyle(SumiButtonStyle())
+                        .disabled(store.radarSort == .totalScore)
+                        .accessibilityLabel("Reset sort to Total Score")
                     Spacer()
                     StateLabel(
                         text: "\(store.radarOpportunities.count) "
