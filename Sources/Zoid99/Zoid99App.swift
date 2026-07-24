@@ -151,20 +151,22 @@ struct Zoid99App: App {
                     Task { await store.refresh() }
                 }
                 .keyboardShortcut("r", modifiers: [.command])
-                Button("Open Today") { store.selectedDestination = .today }
-                    .keyboardShortcut("1", modifiers: [.command])
-                Button("Open Live Radar") { store.selectedDestination = .radar }
-                    .keyboardShortcut("2", modifiers: [.command])
-                Button("Open Topics") { store.selectedDestination = .topics }
-                    .keyboardShortcut("3", modifiers: [.command])
-                Button("Open Comments") { store.selectedDestination = .comments }
-                    .keyboardShortcut("4", modifiers: [.command])
-                Button("Open Watchlists") { store.selectedDestination = .watchlists }
-                    .keyboardShortcut("5", modifiers: [.command])
-                Button("Open Notifications") { store.selectedDestination = .notifications }
-                    .keyboardShortcut("6", modifiers: [.command])
-                Button("Open Sources and Settings") { store.selectedDestination = .settings }
-                    .keyboardShortcut("7", modifiers: [.command])
+        Button("Open Today") { store.selectedDestination = .today }
+            .keyboardShortcut("1", modifiers: [.command])
+        Button("Open Saved") { store.selectedDestination = .saved }
+            .keyboardShortcut("2", modifiers: [.command])
+        Button("Open Live Radar") { store.selectedDestination = .radar }
+            .keyboardShortcut("3", modifiers: [.command])
+        Button("Open Topics") { store.selectedDestination = .topics }
+            .keyboardShortcut("4", modifiers: [.command])
+        Button("Open Comments") { store.selectedDestination = .comments }
+            .keyboardShortcut("5", modifiers: [.command])
+        Button("Open Watchlists") { store.selectedDestination = .watchlists }
+            .keyboardShortcut("6", modifiers: [.command])
+        Button("Open Notifications") { store.selectedDestination = .notifications }
+            .keyboardShortcut("7", modifiers: [.command])
+        Button("Open Sources and Settings") { store.selectedDestination = .settings }
+            .keyboardShortcut("8", modifiers: [.command])
                 Divider()
                 Button("Focus Search") {
                     store.selectedDestination = .radar

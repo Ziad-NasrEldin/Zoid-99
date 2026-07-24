@@ -238,6 +238,18 @@ struct WatchlistEntry: Identifiable, Codable, Hashable, Sendable {
     var highPriority: Bool
 }
 
+struct MuteRule: Identifiable, Codable, Hashable, Sendable {
+    enum Scope: String, Codable, Sendable {
+        case topic
+    }
+
+    let id: UUID
+    let scope: Scope
+    let value: String
+    let label: String
+    let createdAt: Date
+}
+
 enum NotificationPermissionState: String, Codable, Sendable {
     case notDetermined = "Not requested"
     case denied = "Denied"
@@ -424,6 +436,8 @@ struct ResearchState: Codable, Hashable, Sendable {
     var lastSuccessfulSyncAt: Date?
     var pendingDispositionMutations: [OpportunityDispositionMutation]? = []
     var watchlistNeedsSync: Bool? = false
+    var savedOpportunityIDs: Set<UUID>? = []
+    var muteRules: [MuteRule]? = []
 
     static let empty = ResearchState(
         sourceItems: [],
@@ -437,7 +451,9 @@ struct ResearchState: Codable, Hashable, Sendable {
         sourceHealthHistory: [],
         lastSuccessfulSyncAt: nil,
         pendingDispositionMutations: [],
-        watchlistNeedsSync: false
+        watchlistNeedsSync: false,
+        savedOpportunityIDs: [],
+        muteRules: []
     )
 }
 
@@ -452,6 +468,7 @@ struct ResearchOutput: Sendable {
 
 enum AppDestination: String, CaseIterable, Identifiable {
     case today = "Today"
+    case saved = "Saved"
     case radar = "Live Radar"
     case topics = "Topics"
     case comments = "Comments"
