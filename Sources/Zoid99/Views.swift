@@ -43,7 +43,8 @@ struct MainShellView: View {
                     Text(store.statusMessage.uppercased())
                         .font(SumiFont.meta(9))
                         .tracking(1)
-                        .lineLimit(1)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(16)
@@ -311,6 +312,9 @@ struct RadarView: View {
                         accessibilityLabel: "Filter by verification",
                         width: 135
                     )
+                    Spacer()
+                }
+                HStack(spacing: 10) {
                     SumiSelect(
                         title: "Sort",
                         selection: Binding(
@@ -319,7 +323,7 @@ struct RadarView: View {
                         ),
                         options: OpportunitySort.allCases.map { .init(value: $0, title: $0.title) },
                         accessibilityLabel: "Sort Live Radar opportunities",
-                        width: 165
+                        width: 190
                     )
                     Button("Reset sort") { store.resetRadarSort() }
                         .buttonStyle(SumiButtonStyle())
@@ -371,27 +375,9 @@ struct TopicsView: View {
                 title: "Topics",
                 subtitle: "Compare global evidence, creator coverage, and Arabic-market gaps."
             )
-            HStack(spacing: 10) {
-                TextField("Research a topic across every collected source", text: $topicQuery)
-                    .sumiField()
-                    .accessibilityLabel("Cross-source topic research query")
-                    .onSubmit {
-                        Task { await store.researchTopicAcrossConnectedSources(topicQuery) }
-                    }
-                Button(store.isResearchingTopic ? "Researching" : "Research connected sources") {
-                    Task { await store.researchTopicAcrossConnectedSources(topicQuery) }
-                }
-                .buttonStyle(SumiButtonStyle())
-                .disabled(
-                    topicQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        || store.isResearchingTopic
-                )
-                .accessibilityHint("Refresh every configured official provider and retain original evidence")
-                StateLabel(text: result.stateMessage)
-                if !topicQuery.isEmpty {
-                    Button("Clear") { topicQuery = "" }
-                        .buttonStyle(SumiButtonStyle())
-                }
+            ViewThatFits(in: .horizontal) {
+                topicResearchControls(compact: false)
+                topicResearchControls(compact: true)
             }
             Divider().overlay(SumiColor.ink)
             ScrollView {
@@ -422,6 +408,59 @@ struct TopicsView: View {
         .padding(30)
         .sumiPage()
     }
+
+    @ViewBuilder
+    private func topicResearchControls(compact: Bool) -> some View {
+        if compact {
+            VStack(alignment: .leading, spacing: 10) {
+                topicQueryField
+                HStack(spacing: 10) {
+                    topicResearchButton
+                    StateLabel(text: result.stateMessage)
+                    if !topicQuery.isEmpty {
+                        clearTopicButton
+                    }
+                    Spacer(minLength: 0)
+                }
+            }
+        } else {
+            HStack(spacing: 10) {
+                topicQueryField
+                    .frame(minWidth: 320)
+                topicResearchButton
+                StateLabel(text: result.stateMessage)
+                if !topicQuery.isEmpty {
+                    clearTopicButton
+                }
+            }
+        }
+    }
+
+    private var topicQueryField: some View {
+        TextField("Research a topic across every collected source", text: $topicQuery)
+            .sumiField()
+            .accessibilityLabel("Cross-source topic research query")
+            .onSubmit {
+                Task { await store.researchTopicAcrossConnectedSources(topicQuery) }
+            }
+    }
+
+    private var topicResearchButton: some View {
+        Button(store.isResearchingTopic ? "Researching" : "Research connected sources") {
+            Task { await store.researchTopicAcrossConnectedSources(topicQuery) }
+        }
+        .buttonStyle(SumiButtonStyle())
+        .disabled(
+            topicQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || store.isResearchingTopic
+        )
+        .accessibilityHint("Refresh every configured official provider and retain original evidence")
+    }
+
+    private var clearTopicButton: some View {
+        Button("Clear") { topicQuery = "" }
+            .buttonStyle(SumiButtonStyle())
+    }
 }
 
 private struct ResearchEmptyState: View {
@@ -449,7 +488,11 @@ private struct TopicCoverageLedger: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             SectionTitle("SOURCE COVERAGE")
-            HStack(spacing: 8) {
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 140), spacing: 8)],
+                alignment: .leading,
+                spacing: 8
+            ) {
                 ForEach(coverage) { source in
                     VStack(alignment: .leading, spacing: 4) {
                         Text(source.group.rawValue.uppercased())
@@ -541,26 +584,39 @@ struct CommentsView: View {
             Divider().overlay(SumiColor.ink)
             ScrollView {
                 LazyVStack(spacing: 0) {
-                    ForEach(store.comments) { cluster in
-                        HStack(alignment: .top, spacing: 18) {
-                            Text("\(cluster.count)")
-                                .font(SumiFont.display(28))
-                                .frame(width: 42, alignment: .leading)
-                            VStack(alignment: .leading, spacing: 7) {
-                                Text(cluster.question)
-                                    .font(SumiFont.body(17))
-                                    .environment(\.layoutDirection, cluster.language.hasPrefix("ar") ? .rightToLeft : .leftToRight)
-                                    .frame(maxWidth: .infinity, alignment: cluster.language.hasPrefix("ar") ? .trailing : .leading)
-                                HStack {
-                                    StateLabel(text: cluster.demand)
-                                    Text("\(cluster.sourceItems.count) EVIDENCE LINKS")
-                                        .font(SumiFont.meta(9))
-                                        .foregroundStyle(SumiColor.mutedInk)
+                    if store.comments.isEmpty {
+                        ResearchEmptyState(
+                            title: "No recurring audience questions yet",
+                            message: "Connect or refresh a comments source to identify repeated questions and confusion."
+                        )
+                    } else {
+                        ForEach(store.comments) { cluster in
+                            HStack(alignment: .top, spacing: 18) {
+                                Text("\(cluster.count)")
+                                    .font(SumiFont.display(28))
+                                    .frame(width: 42, alignment: .leading)
+                                VStack(alignment: .leading, spacing: 7) {
+                                    Text(cluster.question)
+                                        .font(SumiFont.body(17))
+                                        .environment(
+                                            \.layoutDirection,
+                                            cluster.language.hasPrefix("ar") ? .rightToLeft : .leftToRight
+                                        )
+                                        .frame(
+                                            maxWidth: .infinity,
+                                            alignment: cluster.language.hasPrefix("ar") ? .trailing : .leading
+                                        )
+                                    HStack {
+                                        StateLabel(text: cluster.demand)
+                                        Text("\(cluster.sourceItems.count) EVIDENCE LINKS")
+                                            .font(SumiFont.meta(9))
+                                            .foregroundStyle(SumiColor.mutedInk)
+                                    }
                                 }
                             }
+                            .padding(.vertical, 16)
+                            .overlay(alignment: .bottom) { Divider().overlay(SumiColor.rule) }
                         }
-                        .padding(.vertical, 16)
-                        .overlay(alignment: .bottom) { Divider().overlay(SumiColor.rule) }
                     }
                 }
             }
@@ -885,6 +941,7 @@ struct NotificationsView: View {
                                 Text(record.isRead ? "Opened" : "Open detail")
                                     .font(SumiFont.meta(9))
                             }
+                            .environment(\.isEnabled, true)
                         }
                         .buttonStyle(.plain)
                         .disabled(record.isRead)
