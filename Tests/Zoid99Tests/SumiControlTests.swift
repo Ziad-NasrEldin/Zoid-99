@@ -12,6 +12,12 @@ final class SumiControlTests: XCTestCase {
         XCTAssertEqual(OpportunityQuickAction.watch.accessibilityLabel, "Watch opportunity")
         XCTAssertEqual(OpportunityQuickAction.dismiss.accessibilityLabel, "Dismiss opportunity")
         XCTAssertEqual(OpportunityQuickAction.mute.accessibilityLabel, "Mute opportunity")
+        XCTAssertEqual(OpportunityQuickAction.save.visualRole, .selectable)
+        XCTAssertEqual(OpportunityQuickAction.watch.visualRole, .selectable)
+        XCTAssertEqual(OpportunityQuickAction.dismiss.visualRole, .caution)
+        XCTAssertEqual(OpportunityQuickAction.mute.visualRole, .destructive)
+        XCTAssertTrue(OpportunityQuickAction.mute.accessibilityHint.contains("topic"))
+        XCTAssertTrue(OpportunityQuickAction.dismiss.accessibilityHint.contains("restore"))
         XCTAssertTrue(OpportunityQuickAction.allCases.allSatisfy { !$0.helpText.isEmpty })
     }
 
@@ -22,6 +28,42 @@ final class SumiControlTests: XCTestCase {
         XCTAssertFalse(OpportunityQuickAction.watch.isSelected(isSaved: true, isWatched: false))
         XCTAssertFalse(OpportunityQuickAction.dismiss.isSelected(isSaved: true, isWatched: true))
         XCTAssertFalse(OpportunityQuickAction.mute.isSelected(isSaved: true, isWatched: true))
+        XCTAssertEqual(
+            OpportunityQuickAction.save.accessibilityValue(selected: true),
+            "Selected, saved"
+        )
+        XCTAssertEqual(
+            OpportunityQuickAction.watch.accessibilityValue(selected: true),
+            "Selected, watching"
+        )
+        XCTAssertEqual(
+            OpportunityQuickAction.mute.accessibilityValue(selected: false),
+            "Not selected, suppresses this topic"
+        )
+    }
+
+    func testOpportunityQuickActionsUseIntegratedRowLayoutAtEverySupportedWidth() {
+        XCTAssertEqual(OpportunityQuickActionLayout.placement, .integratedTrailingRow)
+        XCTAssertEqual(OpportunityQuickActionLayout.minimumTargetSize, 34)
+        XCTAssertLessThanOrEqual(
+            OpportunityQuickActionLayout.requiredWidth,
+            AppWindowMetrics.minimumWidth
+        )
+        XCTAssertEqual(
+            OpportunityQuickAction.allCases,
+            [.save, .watch, .dismiss, .mute]
+        )
+    }
+
+    func testTodayLedgerBoundsQuickActionNodesToMaterializedRows() {
+        XCTAssertEqual(
+            TodayLedgerMaterialization.quickActionNodeCount(materializedRowCount: 8),
+            32
+        )
+        XCTAssertLessThan(
+            TodayLedgerMaterialization.quickActionNodeCount(materializedRowCount: 8),
+            TodayLedgerMaterialization.quickActionNodeCount(materializedRowCount: 70)
+        )
     }
 
     func testSelectionCursorMovesWithinMenuBounds() {

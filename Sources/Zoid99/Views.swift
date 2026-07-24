@@ -168,7 +168,7 @@ struct TodayView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 26) {
+            LazyVStack(alignment: .leading, spacing: 26) {
                 HStack(alignment: .top) {
                     LedgerHeader(
                         eyebrow: "Daily briefing",
@@ -208,6 +208,12 @@ struct TodayView: View {
     }
 }
 
+enum TodayLedgerMaterialization {
+    static func quickActionNodeCount(materializedRowCount: Int) -> Int {
+        max(materializedRowCount, 0) * OpportunityQuickAction.allCases.count
+    }
+}
+
 enum OpportunityQuickAction: String, CaseIterable, Identifiable {
     case save
     case watch
@@ -215,6 +221,14 @@ enum OpportunityQuickAction: String, CaseIterable, Identifiable {
     case mute
 
     var id: Self { self }
+
+    var visualRole: OpportunityQuickActionVisualRole {
+        switch self {
+        case .save, .watch: .selectable
+        case .dismiss: .caution
+        case .mute: .destructive
+        }
+    }
 
     var symbolName: String {
         switch self {
@@ -252,6 +266,24 @@ enum OpportunityQuickAction: String, CaseIterable, Identifiable {
         }
     }
 
+    var accessibilityHint: String {
+        switch self {
+        case .save: "Adds this opportunity to Saved"
+        case .watch: "Adds this opportunity to Watchlists, or opens Watchlists when selected"
+        case .dismiss: "Removes this opportunity from Today; it can be restored later"
+        case .mute: "Suppresses this topic from Today; it can be unmuted later"
+        }
+    }
+
+    func accessibilityValue(selected: Bool) -> String {
+        switch self {
+        case .save: selected ? "Selected, saved" : "Not selected, not saved"
+        case .watch: selected ? "Selected, watching" : "Not selected, not watching"
+        case .dismiss: "Not selected, recoverable dismissal"
+        case .mute: "Not selected, suppresses this topic"
+        }
+    }
+
     func isSelected(isSaved: Bool, isWatched: Bool) -> Bool {
         switch self {
         case .save: isSaved
@@ -259,6 +291,25 @@ enum OpportunityQuickAction: String, CaseIterable, Identifiable {
         case .dismiss, .mute: false
         }
     }
+}
+
+enum OpportunityQuickActionVisualRole: Equatable {
+    case selectable
+    case caution
+    case destructive
+}
+
+enum OpportunityQuickActionPlacement: Equatable {
+    case integratedTrailingRow
+}
+
+enum OpportunityQuickActionLayout {
+    static let placement = OpportunityQuickActionPlacement.integratedTrailingRow
+    static let minimumTargetSize: CGFloat = 34
+    static let spacing: CGFloat = 4
+    static let requiredWidth =
+        (minimumTargetSize * CGFloat(OpportunityQuickAction.allCases.count))
+        + (spacing * CGFloat(OpportunityQuickAction.allCases.count - 1))
 }
 
 private struct Metric: View {
@@ -305,12 +356,11 @@ struct OpportunityRow: View {
     }
 
     var body: some View {
-        ZStack(alignment: .trailing) {
+        VStack(spacing: 0) {
             Button {
                 store.selectedOpportunityID = opportunity.id
             } label: {
                 rowContent
-                    .padding(.trailing, showsQuickActions ? 48 : 0)
             }
             .buttonStyle(.plain)
             .sumiHoverFeedback()
@@ -321,7 +371,8 @@ struct OpportunityRow: View {
             .accessibilityHint("Open the evidence and opportunity actions")
 
             if showsQuickActions {
-                VStack(spacing: 4) {
+                HStack(spacing: OpportunityQuickActionLayout.spacing) {
+                    Spacer(minLength: 0)
                     ForEach(OpportunityQuickAction.allCases) { action in
                         OpportunityQuickActionButton(
                             action: action,
@@ -334,8 +385,11 @@ struct OpportunityRow: View {
                         }
                     }
                 }
-                .padding(.trailing, 2)
+                .padding(.top, 2)
+                .padding(.bottom, 12)
                 .environment(\.layoutDirection, .leftToRight)
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("Opportunity quick actions")
             }
         }
         .overlay(alignment: .bottom) { Divider().overlay(SumiColor.rule) }
@@ -416,23 +470,59 @@ private struct OpportunityQuickActionButton: View {
     let selected: Bool
     let perform: () -> Void
     @State private var hovered = false
+    @FocusState private var focused: Bool
 
     var body: some View {
         Button(action: perform) {
             Image(systemName: selected ? action.selectedSymbolName : action.symbolName)
                 .font(.system(size: 12, weight: .semibold))
-                .frame(width: 34, height: 34)
-                .foregroundStyle(selected ? SumiColor.paper : SumiColor.ink)
-                .background(selected ? SumiColor.ink : hovered ? SumiColor.mist : SumiColor.paper)
-                .overlay(Rectangle().stroke(selected ? SumiColor.ink : SumiColor.rule, lineWidth: 1))
+                .frame(
+                    width: OpportunityQuickActionLayout.minimumTargetSize,
+                    height: OpportunityQuickActionLayout.minimumTargetSize
+                )
+                .foregroundStyle(foregroundColor)
+                .background(backgroundColor)
+                .overlay(
+                    Rectangle().stroke(
+                        focused ? focusColor : borderColor,
+                        lineWidth: focused ? 2 : 1
+                    )
+                )
                 .contentShape(Rectangle())
         }
         .buttonStyle(SumiPressStyle())
+        .focusEffectDisabled()
+        .focused($focused)
         .accessibilityLabel(action.accessibilityLabel)
-        .accessibilityValue(selected ? "Selected" : "Not selected")
+        .accessibilityValue(action.accessibilityValue(selected: selected))
+        .accessibilityHint(action.accessibilityHint)
         .accessibilityAddTraits(selected ? [.isSelected] : [])
         .help(action.helpText)
         .onHover { hovered = $0 }
+    }
+
+    private var foregroundColor: Color {
+        if selected { return SumiColor.paper }
+        return action.visualRole == .destructive ? SumiColor.sealDeep : SumiColor.ink
+    }
+
+    private var backgroundColor: Color {
+        if selected { return SumiColor.ink }
+        if action.visualRole == .destructive { return SumiColor.sealWash }
+        return hovered ? SumiColor.mist : SumiColor.paper
+    }
+
+    private var borderColor: Color {
+        if selected { return SumiColor.ink }
+        return switch action.visualRole {
+        case .destructive: SumiColor.seal
+        case .caution: SumiColor.mutedInk
+        case .selectable: SumiColor.rule
+        }
+    }
+
+    private var focusColor: Color {
+        action.visualRole == .destructive ? SumiColor.sealDeep : SumiColor.ink
     }
 }
 
