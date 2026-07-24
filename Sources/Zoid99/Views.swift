@@ -24,7 +24,11 @@ struct MainShellView: View {
                     VStack(spacing: 3) {
                         ForEach(AppDestination.allCases) { destination in
                             Button {
-                                withAnimation(SumiMotion(reduceMotion: reduceMotion).pageAnimation) {
+                                if SumiPageTransitionPolicy.animatesWholePage(destination) {
+                                    withAnimation(SumiMotion(reduceMotion: reduceMotion).pageAnimation) {
+                                        selection = destination
+                                    }
+                                } else {
                                     selection = destination
                                 }
                             } label: {

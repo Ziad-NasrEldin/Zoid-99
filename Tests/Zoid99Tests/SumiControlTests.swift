@@ -80,6 +80,12 @@ final class SumiControlTests: XCTestCase {
         XCTAssertTrue(OpportunityQuickAction.allCases.allSatisfy { !$0.accessibilityHint.isEmpty })
     }
 
+    func testRadarAvoidsTheExpensiveWholePageTransaction() {
+        XCTAssertFalse(SumiPageTransitionPolicy.animatesWholePage(.radar))
+        XCTAssertTrue(SumiPageTransitionPolicy.animatesWholePage(.today))
+        XCTAssertTrue(SumiPageTransitionPolicy.animatesWholePage(.topics))
+    }
+
     func testSelectionCursorMovesWithinMenuBounds() {
         XCTAssertEqual(SumiSelectionCursor.movedIndex(current: 1, count: 3, direction: .down), 2)
         XCTAssertEqual(SumiSelectionCursor.movedIndex(current: 2, count: 3, direction: .down), 2)

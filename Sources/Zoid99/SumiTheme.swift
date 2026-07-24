@@ -60,6 +60,12 @@ struct SumiMotion {
     }
 }
 
+enum SumiPageTransitionPolicy {
+    static func animatesWholePage(_ destination: AppDestination) -> Bool {
+        destination != .radar
+    }
+}
+
 struct SumiButtonStyle: ButtonStyle {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.isEnabled) private var isEnabled
