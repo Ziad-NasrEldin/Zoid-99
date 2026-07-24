@@ -2,6 +2,11 @@ import SwiftUI
 import AppKit
 import UserNotifications
 
+enum AppWindowMetrics {
+    static let minimumWidth: CGFloat = 980
+    static let minimumHeight: CGFloat = 680
+}
+
 @MainActor
 enum MainWindowFramePersistence {
     static let autosaveName = "Zoid99.MainWindow"
@@ -133,7 +138,10 @@ struct Zoid99App: App {
                 }
             }
             .environmentObject(store)
-            .frame(minWidth: 980, minHeight: 680)
+            .frame(
+                minWidth: AppWindowMetrics.minimumWidth,
+                minHeight: AppWindowMetrics.minimumHeight
+            )
             .task {
                 guard store.setupComplete else { return }
                 store.startScheduledRefresh()
