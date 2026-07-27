@@ -73,6 +73,13 @@ struct MainShellView: View {
         .onChange(of: store.selectedDestination) { _, value in
             selection = value
         }
+        .overlay(alignment: .bottom) {
+            if let opportunity = store.dismissedOpportunityForUndo {
+                DismissUndoNotice(opportunity: opportunity)
+                    .padding(20)
+                    .transition(.opacity)
+            }
+        }
     }
 
     @ViewBuilder
@@ -139,6 +146,42 @@ struct SavedView: View {
         }
         .padding(30)
         .sumiPage()
+    }
+}
+
+private struct DismissUndoNotice: View {
+    @EnvironmentObject private var store: AppStore
+    let opportunity: Opportunity
+
+    var body: some View {
+        HStack(spacing: 16) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("OPPORTUNITY DISMISSED")
+                    .font(SumiFont.meta(9))
+                    .tracking(1.2)
+                    .foregroundStyle(SumiColor.mutedInk)
+                Text(opportunity.title)
+                    .font(SumiFont.body(13))
+                    .lineLimit(1)
+            }
+            Button("Undo") {
+                store.undoLastDismissal()
+            }
+            .buttonStyle(SumiButtonStyle(primary: true))
+            .keyboardShortcut("z", modifiers: .command)
+        }
+        .padding(14)
+        .background(SumiColor.paper)
+        .overlay(Rectangle().stroke(SumiColor.ink, lineWidth: 1))
+        .shadow(color: SumiColor.ink.opacity(0.16), radius: 12, y: 4)
+        .frame(maxWidth: 520)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Opportunity dismissed. Undo available.")
+        .task(id: opportunity.id) {
+            try? await Task.sleep(for: .seconds(6))
+            guard !Task.isCancelled else { return }
+            store.clearDismissUndo(id: opportunity.id)
+        }
     }
 }
 

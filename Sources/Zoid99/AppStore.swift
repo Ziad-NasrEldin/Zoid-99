@@ -36,6 +36,7 @@ final class AppStore: ObservableObject {
     @Published var isRefreshing = false
     @Published var isResearchingTopic = false
     @Published var watchlistError: String?
+    @Published private(set) var dismissedOpportunityForUndo: Opportunity?
     @Published private(set) var watchlistSyncState = "Saved locally"
     @Published private(set) var dataTruth: DataTruth = .missing
 
@@ -344,6 +345,11 @@ final class AppStore: ObservableObject {
         dispositions[id] = disposition
         pendingDispositionMutations.removeAll { $0.opportunityID == id }
         pendingDispositionMutations.append(mutation)
+        if disposition == .dismissed {
+            dismissedOpportunityForUndo = opportunities[index]
+        } else if dismissedOpportunityForUndo?.id == id {
+            dismissedOpportunityForUndo = nil
+        }
         statusMessage = "Opportunity \(disposition.writtenState) - syncing"
         persistReportingFailure()
         Task { await synchronizePendingDispositions() }
@@ -479,6 +485,21 @@ final class AppStore: ObservableObject {
         muteRules.contains {
             $0.scope == .topic && $0.value.caseInsensitiveCompare(topicKey) == .orderedSame
         }
+    }
+
+    func undoLastDismissal() {
+        guard let opportunity = dismissedOpportunityForUndo,
+              opportunities.first(where: { $0.id == opportunity.id })?.disposition == .dismissed else {
+            dismissedOpportunityForUndo = nil
+            return
+        }
+        updateDisposition(.active, id: opportunity.id)
+        statusMessage = "Dismissal undone"
+    }
+
+    func clearDismissUndo(id: UUID) {
+        guard dismissedOpportunityForUndo?.id == id else { return }
+        dismissedOpportunityForUndo = nil
     }
 
     func synchronizePendingDispositions() async {

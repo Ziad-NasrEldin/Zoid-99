@@ -59,6 +59,31 @@ final class ResearchPipelineTests: XCTestCase {
     }
 
     @MainActor
+    func testUndoLastDismissalRestoresOpportunityAndPersistsActiveDisposition() throws {
+        let persistence = MemoryPersistence()
+        let store = AppStore(
+            persistence: persistence,
+            dispositionSync: NoopOpportunityDispositionSync()
+        )
+        let opportunity = store.visibleOpportunities[0]
+
+        store.updateDisposition(.dismissed, id: opportunity.id)
+        XCTAssertEqual(store.dismissedOpportunityForUndo?.id, opportunity.id)
+        XCTAssertFalse(store.visibleOpportunities.contains { $0.id == opportunity.id })
+
+        store.undoLastDismissal()
+
+        XCTAssertNil(store.dismissedOpportunityForUndo)
+        XCTAssertTrue(store.visibleOpportunities.contains { $0.id == opportunity.id })
+        XCTAssertEqual(
+            store.opportunities.first { $0.id == opportunity.id }?.disposition,
+            .active
+        )
+        XCTAssertEqual(try persistence.load()?.dispositions[opportunity.id], .active)
+        XCTAssertEqual(store.statusMessage, "Dismissal undone")
+    }
+
+    @MainActor
     func testOfflineDispositionSurvivesRestartAndSynchronizesCanonicalState() async {
         let persistence = MemoryPersistence()
         let actionTime = Date(timeIntervalSince1970: 1_785_000_000)
