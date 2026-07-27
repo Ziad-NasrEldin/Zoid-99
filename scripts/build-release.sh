@@ -40,10 +40,17 @@ sed \
     "$project_root/packaging/Info.plist" > "$app_path/Contents/Info.plist"
 plutil -lint "$app_path/Contents/Info.plist"
 
-if codesign --verify --verbose=2 "$app_path" >/dev/null 2>&1; then
-    print -u2 "Refusing to label a signed bundle as unsigned."
-    exit 1
-fi
+# UserNotifications identifies the application through its signed bundle.
+# SwiftPM linker-signs the executable, but that signature does not bind the
+# assembled app's Info.plist or bundle identifier. Sign the completed bundle so
+# macOS can register notification permission for com.ziadnasreldin.zoid99.
+codesign \
+    --force \
+    --deep \
+    --sign - \
+    --entitlements "$project_root/packaging/Zoid99.entitlements" \
+    "$app_path"
+codesign --verify --deep --strict --verbose=2 "$app_path"
 
 release_timestamp=$(date -u -r "$source_date_epoch" +%Y%m%d%H%M.%S)
 find "$app_path" -exec touch -h -t "$release_timestamp" {} +

@@ -110,6 +110,11 @@ final class AppStore: ObservableObject {
         guard scheduledRefreshTask == nil else { return }
         scheduledRefreshTask = Task { [weak self] in
             guard let self else { return }
+            if self.settings.notificationPermissionRequested {
+                await self.requestNotifications()
+            } else {
+                await self.refreshNotificationPermission()
+            }
             await self.processNotifications(self.notifications)
             await self.refresh()
             while !Task.isCancelled {
@@ -734,6 +739,13 @@ final class AppStore: ObservableObject {
             settings.notificationPermission = .unavailable
             statusMessage = "macOS notification permission is unavailable"
         }
+        persistReportingFailure()
+    }
+
+    private func refreshNotificationPermission() async {
+        let permission = await notificationDelivery.permissionState()
+        notificationPermission = permission
+        settings.notificationPermission = permission
         persistReportingFailure()
     }
 
