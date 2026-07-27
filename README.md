@@ -42,14 +42,14 @@ See `backend/README.md` for environment variables and startup instructions.
 ## Live integration status
 
 Credential-free RSS 2.0, Atom, and GitHub Releases connectors are available for the verified official starter catalog.
-Without backend environment variables, the app uses deterministic fixtures and never presents fixture evidence as live.
+Without backend environment variables, the app collects the credential-free official catalog directly and keeps every credentialed source in its truthful setup state.
 Set `ZOID99_API_BASE_URL` and a matching `ZOID99_API_TOKEN` to enable scheduled official-feed collection and authenticated synchronization.
 Production YouTube Data API collection supports monitored reference and owned channels, recent uploads, keyword search, and video comments.
 Public reference-channel reads use an API key.
 Owned-channel discovery with `mine=true` requires OAuth 2.0 authorization.
 Public comments from a known owned or reference video can use an API key.
 Credentials are supplied at runtime and are never bundled.
-Store desktop credentials in macOS Keychain under service `com.zoid99.youtube-data-api`, or hand them to the backend encrypted configuration service using `youtube.api-key` and `youtube.oauth-refresh-token`.
+Use Sources & Settings to validate and store a YouTube Data API key in macOS Keychain without displaying it again.
 The backend must exchange refresh tokens for short-lived access tokens and must never return refresh tokens through its public API.
 Search country values use ISO 3166-1 alpha-2 codes such as `EG`, `SA`, and `US`; language values use YouTube relevance-language codes such as `ar` and `en`.
 Creator watchlist values for YouTube must be stable channel IDs beginning with `UC`, not mutable display names or handles.

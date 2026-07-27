@@ -149,13 +149,27 @@ final class ResearchPipelineTests: XCTestCase {
     }
 
     func testThemeAndMotionPolicyConstants() {
-        XCTAssertEqual(SumiMotion.pressDuration, 0.15)
-        XCTAssertEqual(SumiMotion.hoverDuration, 0.18)
-        XCTAssertEqual(SumiMotion.disclosureDuration, 0.16)
-        XCTAssertEqual(SumiMotion.standardDuration, 0.20)
-        XCTAssertEqual(SumiMotion(reduceMotion: true).pressScale, 1)
-        XCTAssertEqual(SumiMotion(reduceMotion: false).pressScale, 0.98)
-        XCTAssertNil(SumiMotion(reduceMotion: true).standardAnimation)
+        XCTAssertEqual(SumiMotion.Duration.press, 0.10)
+        XCTAssertEqual(SumiMotion.Duration.hover, 0.14)
+        XCTAssertEqual(SumiMotion.Duration.disclosure, 0.18)
+        XCTAssertEqual(SumiMotion.Duration.state, 0.20)
+        XCTAssertEqual(SumiMotion.Duration.page, 0.22)
+        XCTAssertEqual(SumiMotion.Duration.exit, 0.14)
+
+        let reduced = SumiMotion(reduceMotion: true)
+        XCTAssertEqual(reduced.pressScale, 1)
+        XCTAssertEqual(reduced.spatialOffset, 0)
+        XCTAssertEqual(reduced.staggerDelay(index: 8), 0)
+        XCTAssertNil(reduced.spatialAnimation)
+        XCTAssertNotNil(reduced.opacityAnimation)
+
+        let standard = SumiMotion(reduceMotion: false)
+        XCTAssertEqual(standard.pressScale, 0.98)
+        XCTAssertEqual(standard.spatialOffset, 7)
+        XCTAssertEqual(standard.staggerDelay(index: 0), 0)
+        XCTAssertEqual(standard.staggerDelay(index: 3), 0.09, accuracy: 0.0001)
+        XCTAssertEqual(standard.staggerDelay(index: 20), SumiMotion.Stagger.maximumDelay)
+        XCTAssertNotNil(standard.spatialAnimation)
     }
 
     func testEveryStateHasWrittenText() {
@@ -181,14 +195,18 @@ final class ResearchPipelineTests: XCTestCase {
     @MainActor
     func testDurableRestartRestoresDispositionWatchlistSettingsAndHistory() async {
         let persistence = MemoryPersistence()
-        let firstLaunch = AppStore(persistence: persistence)
+        let firstLaunch = AppStore(persistence: persistence, sync: NoopResearchSync())
         let opportunity = firstLaunch.visibleOpportunities[0]
         firstLaunch.updateDisposition(.saved, id: opportunity.id)
         firstLaunch.addWatchlist(kind: .keyword, value: "local inference")
         firstLaunch.setRefreshMinutes(30)
         await firstLaunch.refresh()
 
-        let restarted = AppStore(persistence: persistence, loadDemoDataWhenEmpty: false)
+        let restarted = AppStore(
+            persistence: persistence,
+            sync: NoopResearchSync(),
+            loadDemoDataWhenEmpty: false
+        )
 
         XCTAssertEqual(restarted.opportunities.first { $0.id == opportunity.id }?.disposition, .saved)
         XCTAssertTrue(restarted.watchlist.contains { $0.value == "local inference" })

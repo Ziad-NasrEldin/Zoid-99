@@ -95,6 +95,34 @@ final class YouTubeConnectorContractTests: XCTestCase {
         )
     }
 
+    func testWatchlistCommentsConnectorDiscoversVideosThenCollectsTheirComments() async throws {
+        let transport = YouTubeStubTransport(responses: [
+            .init(statusCode: 200, headers: [:], body: try fixture("youtube-search.json")),
+            .init(statusCode: 200, headers: [:], body: try fixture("youtube-comments.json")),
+        ])
+        let dataConnector = YouTubeDataConnector(
+            credentialProvider: StaticYouTubeCredentialProvider(.apiKey("public-key")),
+            transport: transport,
+            now: { Date(timeIntervalSince1970: 1_784_813_400) }
+        )
+        let connector = WatchlistYouTubeCommentsConnector(
+            connector: dataConnector,
+            channels: [],
+            searches: [.init(query: "AI", language: "ar", country: "EG")]
+        )
+
+        let result = await connector.collect()
+        let requests = await transport.requests
+
+        XCTAssertEqual(result.state, .available)
+        XCTAssertEqual(result.items.map(\.group), [.comments])
+        XCTAssertEqual(result.items.map(\.externalID), ["comment-1"])
+        XCTAssertEqual(requests.count, 2)
+        XCTAssertTrue(requests[0].url.path.hasSuffix("/search"))
+        XCTAssertTrue(requests[1].url.path.hasSuffix("/commentThreads"))
+        XCTAssertFalse(result.evidence.contains("public-key"))
+    }
+
     func testMissingCredentialAndQuotaErrorsAreExplicitAndNeverMakeRequests() async {
         let missingTransport = YouTubeStubTransport(responses: [])
         let missing = YouTubeDataConnector(

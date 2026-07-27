@@ -238,6 +238,18 @@ struct WatchlistEntry: Identifiable, Codable, Hashable, Sendable {
     var highPriority: Bool
 }
 
+struct MuteRule: Identifiable, Codable, Hashable, Sendable {
+    enum Scope: String, Codable, Sendable {
+        case topic
+    }
+
+    let id: UUID
+    let scope: Scope
+    let value: String
+    let label: String
+    let createdAt: Date
+}
+
 enum NotificationPermissionState: String, Codable, Sendable {
     case notDetermined = "Not requested"
     case denied = "Denied"
@@ -322,10 +334,10 @@ struct AppSettings: Codable, Hashable, Sendable {
     var notificationPermissionRequested: Bool
     var notificationsEnabled: Bool
     var notificationPermission: NotificationPermissionState
-    var quietHoursEnabled: Bool
-    var quietStartHour: Int
-    var quietEndHour: Int
     var digestHour: Int
+    var discordEnabled: Bool
+    var discordHighPriorityEnabled: Bool
+    var discordDeliveredOpportunityIDs: Set<UUID>
 
     static let defaults = AppSettings(
         setupComplete: false,
@@ -333,10 +345,10 @@ struct AppSettings: Codable, Hashable, Sendable {
         notificationPermissionRequested: false,
         notificationsEnabled: false,
         notificationPermission: .notDetermined,
-        quietHoursEnabled: true,
-        quietStartHour: 22,
-        quietEndHour: 8,
-        digestHour: 18
+        digestHour: 18,
+        discordEnabled: false,
+        discordHighPriorityEnabled: true,
+        discordDeliveredOpportunityIDs: []
     )
 
     init(
@@ -345,26 +357,26 @@ struct AppSettings: Codable, Hashable, Sendable {
         notificationPermissionRequested: Bool,
         notificationsEnabled: Bool = false,
         notificationPermission: NotificationPermissionState = .notDetermined,
-        quietHoursEnabled: Bool = true,
-        quietStartHour: Int = 22,
-        quietEndHour: Int = 8,
-        digestHour: Int = 18
+        digestHour: Int = 18,
+        discordEnabled: Bool = false,
+        discordHighPriorityEnabled: Bool = true,
+        discordDeliveredOpportunityIDs: Set<UUID> = []
     ) {
         self.setupComplete = setupComplete
         self.refreshMinutes = refreshMinutes
         self.notificationPermissionRequested = notificationPermissionRequested
         self.notificationsEnabled = notificationsEnabled
         self.notificationPermission = notificationPermission
-        self.quietHoursEnabled = quietHoursEnabled
-        self.quietStartHour = quietStartHour
-        self.quietEndHour = quietEndHour
         self.digestHour = digestHour
+        self.discordEnabled = discordEnabled
+        self.discordHighPriorityEnabled = discordHighPriorityEnabled
+        self.discordDeliveredOpportunityIDs = discordDeliveredOpportunityIDs
     }
 
     private enum CodingKeys: String, CodingKey {
         case setupComplete, refreshMinutes, notificationPermissionRequested
-        case notificationsEnabled, notificationPermission, quietHoursEnabled
-        case quietStartHour, quietEndHour, digestHour
+        case notificationsEnabled, notificationPermission, digestHour
+        case discordEnabled, discordHighPriorityEnabled, discordDeliveredOpportunityIDs
     }
 
     init(from decoder: Decoder) throws {
@@ -377,10 +389,12 @@ struct AppSettings: Codable, Hashable, Sendable {
         notificationPermission =
             try values.decodeIfPresent(NotificationPermissionState.self, forKey: .notificationPermission)
             ?? .notDetermined
-        quietHoursEnabled = try values.decodeIfPresent(Bool.self, forKey: .quietHoursEnabled) ?? true
-        quietStartHour = try values.decodeIfPresent(Int.self, forKey: .quietStartHour) ?? 22
-        quietEndHour = try values.decodeIfPresent(Int.self, forKey: .quietEndHour) ?? 8
         digestHour = try values.decodeIfPresent(Int.self, forKey: .digestHour) ?? 18
+        discordEnabled = try values.decodeIfPresent(Bool.self, forKey: .discordEnabled) ?? false
+        discordHighPriorityEnabled =
+            try values.decodeIfPresent(Bool.self, forKey: .discordHighPriorityEnabled) ?? true
+        discordDeliveredOpportunityIDs =
+            try values.decodeIfPresent(Set<UUID>.self, forKey: .discordDeliveredOpportunityIDs) ?? []
     }
 }
 
@@ -406,6 +420,8 @@ struct ResearchState: Codable, Hashable, Sendable {
     var lastSuccessfulSyncAt: Date?
     var pendingDispositionMutations: [OpportunityDispositionMutation]? = []
     var watchlistNeedsSync: Bool? = false
+    var savedOpportunityIDs: Set<UUID>? = []
+    var muteRules: [MuteRule]? = []
 
     static let empty = ResearchState(
         sourceItems: [],
@@ -419,7 +435,9 @@ struct ResearchState: Codable, Hashable, Sendable {
         sourceHealthHistory: [],
         lastSuccessfulSyncAt: nil,
         pendingDispositionMutations: [],
-        watchlistNeedsSync: false
+        watchlistNeedsSync: false,
+        savedOpportunityIDs: [],
+        muteRules: []
     )
 }
 
@@ -434,6 +452,7 @@ struct ResearchOutput: Sendable {
 
 enum AppDestination: String, CaseIterable, Identifiable {
     case today = "Today"
+    case saved = "Saved"
     case radar = "Live Radar"
     case topics = "Topics"
     case comments = "Comments"

@@ -85,12 +85,11 @@ struct NotificationCoordinator: Sendable {
 
         var processed: [NotificationRecord] = []
         for candidate in fresh.filter({ $0.delivery == .immediate }) {
-            let scheduledAt = quietHoursEnd(from: now, settings: settings, calendar: calendar) ?? now
             let request = NativeNotificationRequest(
                 identifier: candidate.id.uuidString,
                 title: "Zoid 99 - High-priority opportunity",
                 body: candidate.title,
-                scheduledAt: scheduledAt,
+                scheduledAt: now,
                 deepLink: deepLink(for: candidate.opportunityID)
             )
             processed.append(await schedule(candidate, request: request))
@@ -147,9 +146,7 @@ struct NotificationCoordinator: Sendable {
                 record,
                 state: .scheduled,
                 scheduledAt: request.scheduledAt,
-                detail: request.scheduledAt > record.createdAt
-                    ? "Deferred until quiet hours end."
-                    : "Scheduled with macOS."
+                detail: "Scheduled with macOS."
             )
         } catch {
             return updating(
@@ -181,22 +178,18 @@ struct NotificationCoordinator: Sendable {
         URL(string: "zoid99://opportunity/\(opportunityID.uuidString)")!
     }
 
-    private func quietHoursEnd(
-        from now: Date,
-        settings: AppSettings,
-        calendar: Calendar
-    ) -> Date? {
-        guard settings.quietHoursEnabled else { return nil }
-        let hour = calendar.component(.hour, from: now)
-        let crossesMidnight = settings.quietStartHour > settings.quietEndHour
-        let isQuiet = crossesMidnight
-            ? hour >= settings.quietStartHour || hour < settings.quietEndHour
-            : hour >= settings.quietStartHour && hour < settings.quietEndHour
-        guard isQuiet else { return nil }
-        let endToday = calendar.date(bySettingHour: settings.quietEndHour, minute: 0, second: 0, of: now)!
-        return endToday > now
-            ? endToday
-            : calendar.date(byAdding: .day, value: 1, to: endToday)
+    static func migratingLegacyQuietHours(_ records: [NotificationRecord]) -> [NotificationRecord] {
+        records.map { record in
+            guard record.delivery == .immediate,
+                  record.deliveryState == .scheduled,
+                  record.statusDetail == "Deferred until quiet hours end."
+            else { return record }
+            var migrated = record
+            migrated.deliveryState = .awaitingPermission
+            migrated.scheduledAt = nil
+            migrated.statusDetail = "Eligible for immediate 24/7 delivery."
+            return migrated
+        }
     }
 
     private func nextDigestDate(from now: Date, hour: Int, calendar: Calendar) -> Date {

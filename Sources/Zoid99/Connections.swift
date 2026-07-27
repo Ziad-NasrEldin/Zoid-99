@@ -57,10 +57,10 @@ struct ProviderDefinition: Identifiable, Hashable, Sendable {
     static let catalog: [ProviderDefinition] = [
         ProviderDefinition(
             provider: .youtube,
-            prerequisite: "A Google account with access to the YouTube channel.",
-            permissionScope: "Read channel data, videos, and comments. Zoid 99 cannot publish or reply.",
+            prerequisite: "A YouTube Data API v3 key from a Google Cloud project.",
+            permissionScope: "Read public channel data, videos, and comments. Zoid 99 cannot publish or reply.",
             credentialBoundary: .keychain,
-            setupGuidance: "Use Google OAuth. The refresh token stays in macOS Keychain."
+            setupGuidance: "Paste a YouTube Data API key. It is validated once and stays in macOS Keychain."
         ),
         ProviderDefinition(
             provider: .googleTrends,
@@ -221,6 +221,145 @@ struct SetupRequiredProviderValidator: ProviderCredentialValidating {
     }
 }
 
+struct OfficialProviderCredentialValidator: ProviderCredentialValidating {
+    private let transport: any HTTPTransport
+    private let now: @Sendable () -> Date
+
+    init(
+        transport: any HTTPTransport = RetryingHTTPTransport(base: URLSessionHTTPTransport()),
+        now: @escaping @Sendable () -> Date = { Date() }
+    ) {
+        self.transport = transport
+        self.now = now
+    }
+
+    func validate(_ provider: ExternalProvider, credential: String?) async -> ProviderValidationResult {
+        switch provider {
+        case .youtube:
+            return await validateYouTube(credential)
+        case .meta:
+            return await validateInstagram(credential)
+        case .x:
+            return await validateX(credential)
+        case .officialFeeds:
+            return await validateOfficialFeeds()
+        case .googleTrends:
+            return result(
+                .unsupported,
+                "Official Google Trends API access is approval-gated and is not enabled in this local build."
+            )
+        case .aiProvider:
+            return result(.setupRequired, "Configure and validate the AI provider on the monitoring server.")
+        }
+    }
+
+    private func validateYouTube(_ credential: String?) async -> ProviderValidationResult {
+        guard let credential = credential?.trimmedNonEmpty else {
+            return result(.setupRequired, "A YouTube Data API key is required. Nothing was stored.")
+        }
+        var components = URLComponents(string: "https://www.googleapis.com/youtube/v3/videos")!
+        components.queryItems = [
+            URLQueryItem(name: "part", value: "id"),
+            URLQueryItem(name: "chart", value: "mostPopular"),
+            URLQueryItem(name: "maxResults", value: "1"),
+            URLQueryItem(name: "regionCode", value: "US"),
+            URLQueryItem(name: "key", value: credential),
+        ]
+        return await validateRequest(
+            HTTPRequest(url: components.url!),
+            successEvidence: "YouTube Data API read access was validated. The API key is stored only in macOS Keychain.",
+            invalidEvidence: "YouTube rejected the API key or the Data API is not enabled for its project."
+        )
+    }
+
+    private func validateInstagram(_ credential: String?) async -> ProviderValidationResult {
+        guard let credential = credential?.trimmedNonEmpty else {
+            return result(.setupRequired, "A long-lived Instagram professional-account token is required. Nothing was stored.")
+        }
+        var components = URLComponents(string: "https://graph.facebook.com/v23.0/me/accounts")!
+        components.queryItems = [
+            URLQueryItem(name: "fields", value: "id,instagram_business_account"),
+            URLQueryItem(name: "limit", value: "1"),
+        ]
+        return await validateRequest(
+            HTTPRequest(
+                url: components.url!,
+                headers: ["Authorization": "Bearer \(credential)"]
+            ),
+            successEvidence: "Instagram Graph API read access was validated. The token is stored only in macOS Keychain.",
+            invalidEvidence: "Meta rejected the token or it cannot read a connected professional account.",
+            isValidSuccessBody: { data in
+                guard let envelope = try? JSONDecoder().decode(InstagramValidationEnvelope.self, from: data) else {
+                    return false
+                }
+                return envelope.data.contains { $0.instagramBusinessAccount != nil }
+            }
+        )
+    }
+
+    private func validateX(_ credential: String?) async -> ProviderValidationResult {
+        guard let credential = credential?.trimmedNonEmpty else {
+            return result(.setupRequired, "An X API read bearer token is required. Nothing was stored.")
+        }
+        return await validateRequest(
+            HTTPRequest(
+                url: URL(string: "https://api.x.com/2/users/by/username/XDevelopers?user.fields=id")!,
+                headers: ["Authorization": "Bearer \(credential)"]
+            ),
+            successEvidence: "X API read access was validated. The bearer token is stored only in macOS Keychain.",
+            invalidEvidence: "X rejected the bearer token or the project does not have the required read access."
+        )
+    }
+
+    private func validateOfficialFeeds() async -> ProviderValidationResult {
+        let collections = await withTaskGroup(of: ConnectorCollection.self) { group in
+            for source in OfficialAISourceCatalog.starter {
+                group.addTask { await PublicFeedConnector(source: source).collect() }
+            }
+            return await group.reduce(into: []) { $0.append($1) }
+        }
+        let available = collections.filter { $0.state == .available || $0.state == .delayed }
+        guard !available.isEmpty else {
+            return result(.unavailable, "No credential-free official source returned published items.")
+        }
+        let itemCount = available.flatMap(\.items).count
+        let state: ProviderConnectionState = available.count == collections.count ? .connected : .delayed
+        return result(
+            state,
+            "\(available.count) of \(collections.count) credential-free official sources returned \(itemCount) published items."
+        )
+    }
+
+    private func validateRequest(
+        _ request: HTTPRequest,
+        successEvidence: String,
+        invalidEvidence: String,
+        isValidSuccessBody: @escaping @Sendable (Data) -> Bool = { _ in true }
+    ) async -> ProviderValidationResult {
+        do {
+            let response = try await transport.send(request)
+            if (200...299).contains(response.statusCode) {
+                return isValidSuccessBody(response.body)
+                    ? result(.connected, successEvidence)
+                    : result(.setupRequired, invalidEvidence)
+            }
+            if response.statusCode == 429 {
+                return result(.rateLimited, "The provider rate-limited validation. No credential was stored.")
+            }
+            if response.statusCode == 401 || response.statusCode == 403 || response.statusCode == 400 {
+                return result(.setupRequired, invalidEvidence)
+            }
+            return result(.unavailable, "The provider returned HTTP \(response.statusCode). No credential was stored.")
+        } catch {
+            return result(.unavailable, "The provider could not be reached. No credential was stored or displayed.")
+        }
+    }
+
+    private func result(_ state: ProviderConnectionState, _ evidence: String) -> ProviderValidationResult {
+        ProviderValidationResult(state: state, evidence: evidence, checkedAt: now(), retryAt: nil)
+    }
+}
+
 actor LocalProviderConnectionService: ProviderConnectionServicing {
     private let credentials: any CredentialStoring
     private let validator: any ProviderCredentialValidating
@@ -228,7 +367,7 @@ actor LocalProviderConnectionService: ProviderConnectionServicing {
 
     init(
         credentials: any CredentialStoring = KeychainCredentialStore(),
-        validator: any ProviderCredentialValidating = SetupRequiredProviderValidator(),
+        validator: any ProviderCredentialValidating = OfficialProviderCredentialValidator(),
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.credentials = credentials
@@ -337,5 +476,28 @@ actor LocalProviderConnectionService: ProviderConnectionServicing {
                 retryAt: nil
             )
         }
+    }
+}
+
+private struct InstagramValidationEnvelope: Decodable {
+    struct Page: Decodable {
+        struct ProfessionalAccount: Decodable {
+            let id: String
+        }
+
+        let instagramBusinessAccount: ProfessionalAccount?
+
+        enum CodingKeys: String, CodingKey {
+            case instagramBusinessAccount = "instagram_business_account"
+        }
+    }
+
+    let data: [Page]
+}
+
+private extension String {
+    var trimmedNonEmpty: String? {
+        let value = trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
     }
 }

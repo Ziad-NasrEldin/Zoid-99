@@ -25,6 +25,25 @@ final class LivePublicFeedTests: XCTestCase {
         }
     }
 
+    func testCredentialFreeLocalAppPathIsLiveWithoutBackendConfiguration() async throws {
+        guard ProcessInfo.processInfo.environment["ZOID99_RUN_LIVE_FEEDS"] == "1" else {
+            throw XCTSkip("Set ZOID99_RUN_LIVE_FEEDS=1 for credential-free network validation.")
+        }
+        let results = await ProductionResearchSync(environment: [:]).synchronize(watchlist: [])
+        let official = try XCTUnwrap(results.first { $0.group == .official })
+
+        XCTAssertEqual(official.state, .connected, official.evidence)
+        XCTAssertEqual(official.dataTruth, .live, official.evidence)
+        XCTAssertGreaterThanOrEqual(official.items.count, OfficialAISourceCatalog.starter.count)
+        XCTAssertEqual(results.first { $0.group == .youtube }?.state, .setupRequired)
+        XCTAssertEqual(results.first { $0.group == .comments }?.state, .setupRequired)
+        XCTAssertEqual(results.first { $0.group == .googleTrends }?.state, .unsupported)
+        print(
+            "LIVE_LOCAL_APP_PROOF sources=\(OfficialAISourceCatalog.starter.count) "
+                + "items=\(official.items.count) evidence=\(official.evidence)"
+        )
+    }
+
     func testRealOfficialFeedReachesBackendAndMacOSBootstrap() async throws {
         let environment = ProcessInfo.processInfo.environment
         guard environment["ZOID99_RUN_LIVE_SPINE"] == "1" else {

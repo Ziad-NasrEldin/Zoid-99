@@ -256,6 +256,23 @@ final class SourceConnectorContractTests: XCTestCase {
         XCTAssertTrue(result.items.allSatisfy { !["1", "2", "3", "4", "5"].contains($0.externalID) })
     }
 
+    func testStarterCatalogIncludesCredentialFreeOfficialAISources() {
+        let sources = Dictionary(uniqueKeysWithValues: OfficialAISourceCatalog.starter.map { ($0.id, $0) })
+
+        XCTAssertEqual(Set(sources.keys), [
+            "openai-news",
+            "huggingface-transformers-releases",
+            "arxiv-cs-ai",
+            "google-ai-news",
+            "google-gemini-cli-releases",
+            "anthropic-claude-code-releases",
+        ])
+        XCTAssertTrue(sources.values.allSatisfy { $0.endpoint.scheme == "https" })
+        XCTAssertEqual(sources["google-ai-news"]?.kind, .rss)
+        XCTAssertEqual(sources["google-gemini-cli-releases"]?.kind, .githubReleases)
+        XCTAssertEqual(sources["anthropic-claude-code-releases"]?.kind, .githubReleases)
+    }
+
     private func fixture(_ name: String) throws -> Data {
         let url = Bundle.module.url(forResource: name, withExtension: nil)
         return try Data(contentsOf: XCTUnwrap(url))

@@ -12,22 +12,26 @@ final class AppStore: ObservableObject {
     @Published var sourceHealthHistory: [SourceHealthRecord] = []
     @Published var providerConnections: [ProviderConnection] = []
     @Published var watchlist: [WatchlistEntry] = []
+    @Published private(set) var savedOpportunityIDs: Set<UUID> = []
+    @Published private(set) var muteRules: [MuteRule] = []
     @Published var radarSource: SourceGroup?
     @Published var radarVerification: VerificationState?
     @Published var radarTopic = ""
     @Published var radarCountry: String?
     @Published var radarLanguage: String?
     @Published var radarFreshness: RadarFreshness = .any
+    @Published private(set) var radarSort: OpportunitySort
     @Published var searchText = ""
     @Published var searchFocusRequest = 0
     @Published var setupComplete = false
     @Published var refreshMinutes = 15
     @Published var notificationsEnabled = false
     @Published var notificationPermission: NotificationPermissionState = .notDetermined
-    @Published var quietHoursEnabled = true
-    @Published var quietStartHour = 22
-    @Published var quietEndHour = 8
     @Published var digestHour = 18
+    @Published var discordEnabled = false
+    @Published var discordHighPriorityEnabled = true
+    @Published private(set) var discordConfigured = false
+    @Published private(set) var discordStatus: DiscordDeliveryStatus = .notConfigured
     @Published var statusMessage = "Ready"
     @Published var isRefreshing = false
     @Published var isResearchingTopic = false
@@ -49,6 +53,8 @@ final class AppStore: ObservableObject {
     private let now: @Sendable () -> Date
     private let connectionService: any ProviderConnectionServicing
     private let notificationDelivery: any NotificationDelivering
+    private let discordService: any DiscordNotificationServicing
+    private let sortDefaults: UserDefaults
     private var scheduledRefreshTask: Task<Void, Never>?
     private var isSyncingWatchlist = false
     private var watchlistNeedsSync = false
@@ -61,6 +67,8 @@ final class AppStore: ObservableObject {
         now: @escaping @Sendable () -> Date = { .now },
         connectionService: any ProviderConnectionServicing = LocalProviderConnectionService(),
         notificationDelivery: any NotificationDelivering = UnavailableNotificationDelivery(),
+        discordService: any DiscordNotificationServicing = DiscordNotificationService(),
+        sortDefaults: UserDefaults = .standard,
         loadDemoDataWhenEmpty: Bool = true
     ) {
         self.persistence = persistence
@@ -70,6 +78,11 @@ final class AppStore: ObservableObject {
         self.now = now
         self.connectionService = connectionService
         self.notificationDelivery = notificationDelivery
+        self.discordService = discordService
+        self.sortDefaults = sortDefaults
+        self.radarSort = OpportunitySort(
+            rawValue: sortDefaults.string(forKey: OpportunitySort.storageKey) ?? ""
+        ) ?? .totalScore
         do {
             if let stored = try persistence.load() {
                 applyStoredState(stored)
@@ -96,6 +109,7 @@ final class AppStore: ObservableObject {
         guard scheduledRefreshTask == nil else { return }
         scheduledRefreshTask = Task { [weak self] in
             guard let self else { return }
+            await self.processNotifications(self.notifications)
             await self.refresh()
             while !Task.isCancelled {
                 let interval = UInt64(self.refreshMinutes) * 60
@@ -120,8 +134,25 @@ final class AppStore: ObservableObject {
 
     var activeOpportunities: [Opportunity] {
         opportunities.filter {
-            $0.disposition != .dismissed && $0.disposition != .muted
+            $0.disposition != .dismissed
+                && $0.disposition != .muted
+                && !isTopicMuted($0.topicKey)
         }
+    }
+
+    var savedOpportunities: [Opportunity] {
+        opportunities
+            .filter { savedOpportunityIDs.contains($0.id) }
+            .sorted { $0.earliestPublishedAt > $1.earliestPublishedAt }
+    }
+
+    var dismissedOpportunities: [Opportunity] {
+        opportunities
+            .filter { $0.disposition == .dismissed }
+            .sorted {
+                ($0.dispositionUpdatedAt ?? $0.earliestPublishedAt)
+                    > ($1.dispositionUpdatedAt ?? $1.earliestPublishedAt)
+            }
     }
 
     var visibleOpportunities: [Opportunity] {
@@ -129,7 +160,7 @@ final class AppStore: ObservableObject {
     }
 
     var radarOpportunities: [Opportunity] {
-        activeOpportunities.filter { opportunity in
+        radarSort.sorted(activeOpportunities.filter { opportunity in
             guard opportunity.disposition != .dismissed, opportunity.disposition != .muted else { return false }
             let sourceMatch = radarSource.map { source in opportunity.items.contains { $0.group == source } } ?? true
             let verificationMatch = radarVerification.map { $0 == opportunity.verification } ?? true
@@ -152,7 +183,7 @@ final class AppStore: ObservableObject {
                 }
             return sourceMatch && verificationMatch && topicMatch && countryMatch
                 && languageMatch && freshnessMatch && searchMatch
-        }
+        })
     }
 
     var radarCountries: [String] {
@@ -172,6 +203,15 @@ final class AppStore: ObservableObject {
         radarLanguage = nil
         radarFreshness = .any
         statusMessage = "Radar filters cleared"
+    }
+
+    func setRadarSort(_ sort: OpportunitySort) {
+        radarSort = sort
+        sortDefaults.set(sort.rawValue, forKey: OpportunitySort.storageKey)
+    }
+
+    func resetRadarSort() {
+        setRadarSort(.totalScore)
     }
 
     func requestSearchFocus() {
@@ -243,6 +283,7 @@ final class AppStore: ObservableObject {
             opportunities = output.opportunities.map(applyingStoredDisposition)
             comments = output.comments
             await processNotifications(output.notifications)
+            await processDiscordNotifications()
             lastSuccessfulSyncAt = results.map(\.collectedAt).max()
         }
 
@@ -306,6 +347,138 @@ final class AppStore: ObservableObject {
         statusMessage = "Opportunity \(disposition.writtenState) - syncing"
         persistReportingFailure()
         Task { await synchronizePendingDispositions() }
+    }
+
+    @discardableResult
+    func toggleSavedOpportunity(id: UUID) -> Bool {
+        guard opportunities.contains(where: { $0.id == id }) else {
+            statusMessage = "Opportunity unavailable - no changes made"
+            return false
+        }
+        if savedOpportunityIDs.remove(id) != nil {
+            statusMessage = "Removed from Saved"
+        } else {
+            savedOpportunityIDs.insert(id)
+            statusMessage = "Saved - available in Saved"
+        }
+        persistReportingFailure()
+        return true
+    }
+
+    func isOpportunitySaved(_ id: UUID) -> Bool {
+        savedOpportunityIDs.contains(id)
+    }
+
+    @discardableResult
+    func watchOpportunity(id: UUID) -> Bool {
+        guard let opportunity = opportunities.first(where: { $0.id == id }) else {
+            statusMessage = "Opportunity unavailable - no changes made"
+            return false
+        }
+        guard !isOpportunityWatched(id) else {
+            statusMessage = "Already watched - manage it in Watchlists"
+            return false
+        }
+        return addWatchlist(kind: .topic, value: opportunity.title)
+    }
+
+    func isOpportunityWatched(_ id: UUID) -> Bool {
+        guard let opportunity = opportunities.first(where: { $0.id == id }) else { return false }
+        return watchlist.contains {
+            $0.kind == .topic
+                && (
+                    $0.value.caseInsensitiveCompare(opportunity.title) == .orderedSame
+                        || $0.value.caseInsensitiveCompare(opportunity.topicKey) == .orderedSame
+                )
+        }
+    }
+
+    @discardableResult
+    func stopWatchingOpportunity(id: UUID) -> Bool {
+        guard let opportunity = opportunities.first(where: { $0.id == id }),
+              let entry = watchlist.first(where: {
+                  $0.kind == .topic
+                      && (
+                          $0.value.caseInsensitiveCompare(opportunity.title) == .orderedSame
+                              || $0.value.caseInsensitiveCompare(opportunity.topicKey) == .orderedSame
+                      )
+              }) else {
+            statusMessage = "Watch entry unavailable - no changes made"
+            return false
+        }
+        removeWatchlist(id: entry.id)
+        statusMessage = "Stopped watching \(opportunity.title)"
+        return true
+    }
+
+    @discardableResult
+    func dismissOpportunity(id: UUID) -> Bool {
+        guard opportunities.contains(where: { $0.id == id }) else {
+            statusMessage = "Opportunity unavailable - no changes made"
+            return false
+        }
+        updateDisposition(.dismissed, id: id)
+        statusMessage = "Dismissed - restore it in Sources & Settings"
+        return true
+    }
+
+    @discardableResult
+    func restoreDismissedOpportunity(id: UUID) -> Bool {
+        guard opportunities.contains(where: { $0.id == id && $0.disposition == .dismissed }) else {
+            statusMessage = "Dismissed opportunity unavailable - no changes made"
+            return false
+        }
+        updateDisposition(.active, id: id)
+        statusMessage = "Opportunity restored"
+        return true
+    }
+
+    @discardableResult
+    func muteOpportunityTopic(id: UUID) -> Bool {
+        guard let opportunity = opportunities.first(where: { $0.id == id }) else {
+            statusMessage = "Opportunity unavailable - no changes made"
+            return false
+        }
+        guard !isTopicMuted(opportunity.topicKey) else {
+            statusMessage = "Topic already muted - manage it in Sources & Settings"
+            return false
+        }
+        muteRules.append(
+            MuteRule(
+                id: UUID(),
+                scope: .topic,
+                value: opportunity.topicKey,
+                label: opportunity.title,
+                createdAt: now()
+            )
+        )
+        updateDisposition(.muted, id: id)
+        statusMessage = "Muted topic \(opportunity.title) - manage it in Sources & Settings"
+        persistReportingFailure()
+        return true
+    }
+
+    @discardableResult
+    func unmuteRule(id: UUID) -> Bool {
+        guard let rule = muteRules.first(where: { $0.id == id }) else {
+            statusMessage = "Mute rule unavailable - no changes made"
+            return false
+        }
+        muteRules.removeAll { $0.id == id }
+        for opportunity in opportunities where
+            opportunity.topicKey.caseInsensitiveCompare(rule.value) == .orderedSame
+                && opportunity.disposition == .muted {
+            updateDisposition(.active, id: opportunity.id)
+        }
+        statusMessage = "Unmuted topic \(rule.label)"
+        persistReportingFailure()
+        return true
+    }
+
+    func isTopicMuted(_ topicKey: String) -> Bool {
+        muteRules.contains {
+            $0.scope == .topic && $0.value.caseInsensitiveCompare(topicKey) == .orderedSame
+        }
     }
 
     func synchronizePendingDispositions() async {
@@ -566,28 +739,84 @@ final class AppStore: ObservableObject {
         persistReportingFailure()
     }
 
-    func setQuietHoursEnabled(_ enabled: Bool) {
-        quietHoursEnabled = enabled
-        settings.quietHoursEnabled = enabled
-        persistReportingFailure()
-    }
-
-    func setQuietStartHour(_ hour: Int) {
-        quietStartHour = min(23, max(0, hour))
-        settings.quietStartHour = quietStartHour
-        persistReportingFailure()
-    }
-
-    func setQuietEndHour(_ hour: Int) {
-        quietEndHour = min(23, max(0, hour))
-        settings.quietEndHour = quietEndHour
-        persistReportingFailure()
-    }
-
     func setDigestHour(_ hour: Int) {
         digestHour = min(23, max(0, hour))
         settings.digestHour = digestHour
         persistReportingFailure()
+    }
+
+    func refreshDiscordConfigurationStatus() async {
+        discordConfigured = await discordService.isConfigured()
+        discordStatus = discordConfigured
+            ? (discordEnabled ? .ready : .disabled)
+            : .notConfigured
+    }
+
+    func configureDiscordWebhook(_ value: String) async {
+        discordStatus = .validating
+        do {
+            try await discordService.configure(value)
+            discordConfigured = true
+            discordStatus = discordEnabled ? .ready : .disabled
+            statusMessage = "Discord webhook validated and saved in macOS Keychain"
+        } catch {
+            discordConfigured = await discordService.isConfigured()
+            discordStatus = .failed(
+                (error as? LocalizedError)?.errorDescription
+                    ?? "Discord validation failed safely."
+            )
+            statusMessage = "Discord webhook was not saved"
+        }
+    }
+
+    func removeDiscordWebhook() async {
+        do {
+            try await discordService.remove()
+            discordConfigured = false
+            discordEnabled = false
+            settings.discordEnabled = false
+            discordStatus = .notConfigured
+            statusMessage = "Discord webhook removed from macOS Keychain"
+            persistReportingFailure()
+        } catch {
+            discordStatus = .failed("The Discord webhook could not be removed from macOS Keychain.")
+        }
+    }
+
+    func setDiscordEnabled(_ enabled: Bool) {
+        discordEnabled = enabled && discordConfigured
+        settings.discordEnabled = discordEnabled
+        discordStatus = discordConfigured
+            ? (discordEnabled ? .ready : .disabled)
+            : .notConfigured
+        statusMessage = enabled && !discordConfigured
+            ? "Save and validate a Discord webhook first"
+            : discordEnabled ? "Discord delivery enabled" : "Discord delivery disabled"
+        persistReportingFailure()
+    }
+
+    func setDiscordHighPriorityEnabled(_ enabled: Bool) {
+        discordHighPriorityEnabled = enabled
+        settings.discordHighPriorityEnabled = enabled
+        persistReportingFailure()
+    }
+
+    func sendDiscordTest() async {
+        guard discordConfigured else {
+            discordStatus = .notConfigured
+            return
+        }
+        do {
+            try await discordService.send(.test)
+            discordStatus = .delivered(now())
+            statusMessage = "Discord test delivered"
+        } catch {
+            discordStatus = .failed(
+                (error as? LocalizedError)?.errorDescription
+                    ?? "Discord test failed safely."
+            )
+            statusMessage = "Discord test was not delivered"
+        }
     }
 
     func openNotificationDeepLink(_ url: URL) {
@@ -661,7 +890,7 @@ final class AppStore: ObservableObject {
                 sourceItems: cluster.sourceItems.map(markingLiveAsCached)
             )
         }
-        notifications = stored.notificationHistory
+        notifications = NotificationCoordinator.migratingLegacyQuietHours(stored.notificationHistory)
         sourceHealth = stored.sourceHealth.map {
             var health = $0
             if health.dataTruth == .live { health.dataTruth = .cached }
@@ -671,7 +900,48 @@ final class AppStore: ObservableObject {
         updateProviderConnectionsFromSourceHealth()
         sourceHealthHistory = stored.sourceHealthHistory
         watchlist = stored.watchlist
-        watchlistNeedsSync = stored.watchlistNeedsSync ?? !stored.watchlist.isEmpty
+        var migratedWatchlist = false
+        for opportunity in stored.opportunities {
+            guard let index = watchlist.firstIndex(where: {
+                $0.kind == .topic
+                    && $0.value.caseInsensitiveCompare(opportunity.topicKey) == .orderedSame
+            }) else { continue }
+            watchlist[index].value = opportunity.title
+            migratedWatchlist = true
+        }
+        savedOpportunityIDs = stored.savedOpportunityIDs
+            ?? Set(stored.opportunities.filter { $0.disposition == .saved }.map(\.id))
+        muteRules = stored.muteRules ?? stored.opportunities.compactMap { opportunity in
+            guard opportunity.disposition == .muted else { return nil }
+            return MuteRule(
+                id: opportunity.dispositionMutationID ?? opportunity.id,
+                scope: .topic,
+                value: opportunity.topicKey,
+                label: opportunity.title,
+                createdAt: opportunity.dispositionUpdatedAt ?? opportunity.earliestPublishedAt
+            )
+        }
+        for opportunity in stored.opportunities where opportunity.disposition == .watched {
+            let exists = watchlist.contains {
+                $0.kind == .topic
+                    && (
+                        $0.value.caseInsensitiveCompare(opportunity.title) == .orderedSame
+                            || $0.value.caseInsensitiveCompare(opportunity.topicKey) == .orderedSame
+                    )
+            }
+            if !exists {
+                watchlist.append(
+                    WatchlistEntry(
+                        id: opportunity.dispositionMutationID ?? opportunity.id,
+                        kind: .topic,
+                        value: opportunity.title,
+                        highPriority: false
+                    )
+                )
+            }
+        }
+        watchlistNeedsSync = migratedWatchlist
+            || (stored.watchlistNeedsSync ?? !stored.watchlist.isEmpty)
         settings = stored.settings
         setupComplete = settings.setupComplete
         refreshMinutes = settings.refreshMinutes
@@ -700,10 +970,21 @@ final class AppStore: ObservableObject {
     private func applyNotificationSettings() {
         notificationsEnabled = settings.notificationsEnabled
         notificationPermission = settings.notificationPermission
-        quietHoursEnabled = settings.quietHoursEnabled
-        quietStartHour = settings.quietStartHour
-        quietEndHour = settings.quietEndHour
         digestHour = settings.digestHour
+        discordEnabled = settings.discordEnabled
+        discordHighPriorityEnabled = settings.discordHighPriorityEnabled
+    }
+
+    private func processDiscordNotifications() async {
+        let result = await DiscordNotificationCoordinator(service: discordService).process(
+            opportunities: discordHighPriorityEnabled ? opportunities : [],
+            enabled: discordEnabled,
+            deliveredOpportunityIDs: settings.discordDeliveredOpportunityIDs,
+            now: now()
+        )
+        settings.discordDeliveredOpportunityIDs =
+            Set(result.deliveredOpportunityIDs.sorted { $0.uuidString < $1.uuidString }.suffix(1_000))
+        discordStatus = result.status
     }
 
     private func recordSourceHealth(_ results: [SourceSyncResult]) {
@@ -933,10 +1214,9 @@ final class AppStore: ObservableObject {
         settings.refreshMinutes = refreshMinutes
         settings.notificationsEnabled = notificationsEnabled
         settings.notificationPermission = notificationPermission
-        settings.quietHoursEnabled = quietHoursEnabled
-        settings.quietStartHour = quietStartHour
-        settings.quietEndHour = quietEndHour
         settings.digestHour = digestHour
+        settings.discordEnabled = discordEnabled
+        settings.discordHighPriorityEnabled = discordHighPriorityEnabled
         try persistence.save(
             ResearchState(
                 sourceItems: sourceItems,
@@ -950,7 +1230,9 @@ final class AppStore: ObservableObject {
                 sourceHealthHistory: sourceHealthHistory,
                 lastSuccessfulSyncAt: lastSuccessfulSyncAt,
                 pendingDispositionMutations: pendingDispositionMutations,
-                watchlistNeedsSync: watchlistNeedsSync
+                watchlistNeedsSync: watchlistNeedsSync,
+                savedOpportunityIDs: savedOpportunityIDs,
+                muteRules: muteRules
             )
         )
     }
@@ -978,7 +1260,7 @@ private extension SourceItem {
     }
 }
 
-private extension Opportunity {
+extension Opportunity {
     func matchesResearchQuery(_ query: String) -> Bool {
         title.localizedCaseInsensitiveContains(query)
             || brief.localizedCaseInsensitiveContains(query)

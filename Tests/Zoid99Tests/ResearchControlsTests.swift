@@ -188,7 +188,7 @@ final class ResearchControlsTests: XCTestCase {
         XCTAssertTrue(plan.xQueries.contains { $0 == "agents lang:ar" })
         XCTAssertTrue(plan.xQueries.contains { $0 == "agents lang:en" })
         XCTAssertEqual(plan.trendLanguages, ["ar", "en"])
-        XCTAssertEqual(Set(connectorGroups), Set([.youtube, .googleTrends, .instagram, .official, .x]))
+        XCTAssertEqual(Set(connectorGroups), Set([.youtube, .comments, .googleTrends, .instagram, .official, .x]))
         XCTAssertEqual(
             WatchlistEntry.Kind.country.connectorSupport.first { $0.group == .x }?.level,
             .collectedEvidence
