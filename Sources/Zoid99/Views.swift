@@ -6,63 +6,81 @@ struct MainShellView: View {
     @State private var selection: AppDestination? = .today
 
     var body: some View {
-        NavigationSplitView {
-            VStack(spacing: 0) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("ZOID 99")
-                        .font(SumiFont.display(24))
-                    Text("RESEARCH INTELLIGENCE")
-                        .font(SumiFont.meta(9))
-                        .tracking(1.8)
-                        .foregroundStyle(SumiColor.mutedInk)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(18)
-                .overlay(alignment: .bottom) { Divider().overlay(SumiColor.rule) }
-
-                ScrollView {
-                    VStack(spacing: 3) {
-                        ForEach(AppDestination.allCases) { destination in
-                            Button {
-                                if SumiPageTransitionPolicy.animatesWholePage(destination) {
-                                    withAnimation(SumiMotion(reduceMotion: reduceMotion).pageAnimation) {
-                                        selection = destination
-                                    }
-                                } else {
-                                    selection = destination
-                                }
-                            } label: {
-                                SidebarRow(destination: destination, selected: selection == destination)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityAddTraits(selection == destination ? [.isSelected] : [])
-                        }
+        HStack(spacing: 0) {
+            IdentityRail()
+            NavigationSplitView {
+                VStack(spacing: 0) {
+                    VStack(alignment: .leading, spacing: 7) {
+                        Text("PRIVATE SIGNAL LEDGER")
+                            .font(SumiFont.meta(8))
+                            .tracking(1.5)
+                            .foregroundStyle(SumiColor.paper.opacity(0.72))
+                        Text("Command Index")
+                            .font(SumiFont.display(23).weight(.bold))
+                            .foregroundStyle(SumiColor.paper)
                     }
-                    .padding(10)
-                }
-                .background(SumiColor.softPaper)
-                .accessibilityLabel("Sidebar")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 17)
+                    .padding(.vertical, 20)
+                    .background(SumiColor.sealDeep)
 
-                HStack {
-                    Circle()
-                        .fill(SumiColor.seal)
-                        .frame(width: 7, height: 7)
-                    Text(store.statusMessage.uppercased())
-                        .font(SumiFont.meta(9))
-                        .tracking(1)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 22) {
+                            ForEach(SidebarGroup.allCases) { group in
+                                VStack(spacing: 2) {
+                                    Text(group.title)
+                                        .font(SumiFont.meta(8))
+                                        .tracking(1.7)
+                                        .foregroundStyle(SumiColor.mutedInk)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(.horizontal, 10)
+                                        .padding(.bottom, 5)
+                                    ForEach(group.destinations) { destination in
+                                        Button {
+                                            if SumiPageTransitionPolicy.animatesWholePage(destination) {
+                                                withAnimation(SumiMotion(reduceMotion: reduceMotion).pageAnimation) {
+                                                    selection = destination
+                                                }
+                                            } else {
+                                                selection = destination
+                                            }
+                                        } label: {
+                                            SidebarRow(destination: destination, selected: selection == destination)
+                                        }
+                                        .buttonStyle(.plain)
+                                        .accessibilityAddTraits(selection == destination ? [.isSelected] : [])
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.vertical, 18)
+                        .padding(.horizontal, 7)
+                    }
+                    .background(SumiColor.softPaper)
+                    .accessibilityLabel("Sidebar")
+
+                    HStack(alignment: .top, spacing: 9) {
+                        Rectangle()
+                            .fill(SumiColor.seal)
+                            .frame(width: 8, height: 8)
+                            .padding(.top, 2)
+                        Text(store.statusMessage.uppercased())
+                            .font(SumiFont.meta(8))
+                            .tracking(0.9)
+                            .lineLimit(3)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(15)
+                    .overlay(alignment: .top) { Divider().overlay(SumiColor.rule) }
+                    .sumiStateMotion(store.statusMessage)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(16)
-                .overlay(alignment: .top) { Divider().overlay(SumiColor.rule) }
-                .sumiStateMotion(store.statusMessage)
+                .navigationSplitViewColumnWidth(min: 188, ideal: 210, max: 230)
+            } detail: {
+                destinationView(selection ?? .today)
+                    .id(selection ?? .today)
+                    .transition(.opacity)
             }
-            .navigationSplitViewColumnWidth(min: 210, ideal: 240)
-        } detail: {
-            destinationView(selection ?? .today)
-                .id(selection ?? .today)
-                .transition(.opacity)
         }
         .onChange(of: selection) { _, value in
             if let value { store.selectedDestination = value }
@@ -93,6 +111,57 @@ struct MainShellView: View {
         case .watchlists: WatchlistsView()
         case .notifications: NotificationsView()
         case .settings: SettingsView()
+        }
+    }
+}
+
+private struct IdentityRail: View {
+    var body: some View {
+        VStack {
+            Text("Z9")
+                .font(SumiFont.meta(12))
+                .foregroundStyle(SumiColor.paper)
+                .frame(width: 32, height: 32)
+                .overlay(Rectangle().stroke(SumiColor.paper, lineWidth: 1))
+            Spacer()
+            Text("ZOID 99")
+                .font(SumiFont.meta(8))
+                .tracking(2)
+                .foregroundStyle(SumiColor.paper)
+                .rotationEffect(.degrees(-90))
+                .fixedSize()
+            Spacer()
+            Rectangle()
+                .fill(SumiColor.seal)
+                .frame(width: 11, height: 11)
+        }
+        .padding(.vertical, 12)
+        .frame(width: 50)
+        .frame(maxHeight: .infinity)
+        .background(SumiColor.ink)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Zoid 99 Research Intelligence")
+    }
+}
+
+private enum SidebarGroup: String, CaseIterable, Identifiable {
+    case intelligence
+    case monitoring
+    case system
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .intelligence: "INTELLIGENCE"
+        case .monitoring: "MONITORING"
+        case .system: "SYSTEM"
+        }
+    }
+    var destinations: [AppDestination] {
+        switch self {
+        case .intelligence: [.today, .saved, .radar, .topics]
+        case .monitoring: [.comments, .watchlists, .notifications]
+        case .system: [.settings]
         }
     }
 }
@@ -191,17 +260,23 @@ private struct SidebarRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Rectangle()
-                .fill(selected ? SumiColor.seal : Color.clear)
-                .frame(width: 2, height: 18)
-            Text(destination.rawValue.uppercased())
+            Image(systemName: destination.navigationSymbol)
+                .font(.system(size: 13, weight: selected ? .semibold : .regular))
+                .foregroundStyle(selected ? SumiColor.seal : SumiColor.mutedInk)
+                .frame(width: 18)
+            Text(destination.rawValue)
                 .font(SumiFont.meta(11))
-                .tracking(1.2)
+                .tracking(0.25)
             Spacer()
+            if selected {
+                Rectangle()
+                    .fill(SumiColor.seal)
+                    .frame(width: 7, height: 7)
+            }
         }
         .foregroundStyle(selected ? SumiColor.paper : SumiColor.ink)
-        .padding(.vertical, 7)
-        .padding(.horizontal, 7)
+        .padding(.vertical, 10)
+        .padding(.horizontal, 10)
         .background(selected ? SumiColor.ink : Color.clear)
         .contentShape(Rectangle())
         .accessibilityAddTraits(selected ? [.isSelected] : [])
@@ -210,36 +285,103 @@ private struct SidebarRow: View {
     }
 }
 
+private extension AppDestination {
+    var navigationSymbol: String {
+        switch self {
+        case .today: "rectangle.grid.1x2"
+        case .saved: "bookmark"
+        case .radar: "dot.radiowaves.left.and.right"
+        case .topics: "square.stack.3d.up"
+        case .comments: "text.bubble"
+        case .watchlists: "eye"
+        case .notifications: "bell"
+        case .settings: "slider.horizontal.3"
+        }
+    }
+}
+
 struct TodayView: View {
     @EnvironmentObject private var store: AppStore
 
     var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 26) {
-                HStack(alignment: .top) {
-                    LedgerHeader(
-                        eyebrow: "Daily briefing",
-                        title: "Today",
-                        subtitle: "Trustworthy developments ranked for freshness, evidence, and Arabic opportunity."
-                    )
-                    Spacer()
-                    Button(store.isRefreshing ? "Refreshing" : "Refresh") {
-                        Task { await store.refresh() }
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ZStack(alignment: .topTrailing) {
+                    Text("01")
+                        .font(SumiFont.display(118).weight(.bold))
+                        .tracking(-8)
+                        .foregroundStyle(SumiColor.paper.opacity(0.10))
+                        .offset(x: -12, y: -20)
+                        .accessibilityHidden(true)
+                    HStack(alignment: .bottom, spacing: 28) {
+                        VStack(alignment: .leading, spacing: 11) {
+                            Text("LIVE RESEARCH INTELLIGENCE")
+                                .font(SumiFont.meta(10))
+                                .tracking(1.6)
+                                .foregroundStyle(SumiColor.paper.opacity(0.68))
+                            Text("Today")
+                                .font(SumiFont.display(56).weight(.bold))
+                                .tracking(-2.2)
+                                .foregroundStyle(SumiColor.paper)
+                        }
+                        Spacer(minLength: 20)
+                        HStack(alignment: .top, spacing: 10) {
+                            Rectangle()
+                                .fill(store.dataTruth.isAttentionRequired ? SumiColor.seal : SumiColor.healthy)
+                                .frame(width: 10, height: 10)
+                                .padding(.top, 4)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(store.dataTruth.rawValue)
+                                    .font(SumiFont.meta(12))
+                                Text("Current evidence state")
+                                    .font(SumiFont.body(11))
+                                    .foregroundStyle(SumiColor.mutedInk)
+                            }
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
+                        .background(SumiColor.paper)
+                        .background {
+                            Rectangle()
+                                .fill(SumiColor.seal)
+                                .offset(x: 6, y: 6)
+                        }
+                        .foregroundStyle(SumiColor.ink)
+                        .overlay(Rectangle().stroke(SumiColor.paper, lineWidth: 1))
+                        .fixedSize()
                     }
-                    .buttonStyle(SumiButtonStyle(primary: true))
-                    .disabled(store.isRefreshing)
-                    .sumiStateMotion(store.isRefreshing)
+                    .padding(.horizontal, 26)
+                    .padding(.vertical, 28)
                 }
-                Divider().overlay(SumiColor.ink)
+                .background(SumiColor.ink)
+                .overlay(Rectangle().stroke(SumiColor.ink, lineWidth: 1))
 
                 HStack(spacing: 0) {
-                    Metric(value: "\(store.visibleOpportunities.count)", label: "Active opportunities")
+                    Metric(value: "\(store.visibleOpportunities.count)", label: "Active opportunities", emphasized: true)
                     Metric(value: "\(store.visibleOpportunities.filter(\.isHighPriority).count)", label: "Immediate alerts")
                     Metric(value: "\(store.sourceHealth.filter { $0.state == .connected }.count)/6", label: "Live sources")
                     Metric(value: store.dataTruth.rawValue, label: "Current evidence")
                 }
 
+                HStack(spacing: 10) {
+                    Button(store.isRefreshing ? "Checking" : "Refresh ledger") {
+                        Task { await store.refresh() }
+                    }
+                    .buttonStyle(SumiButtonStyle())
+                    .disabled(store.isRefreshing)
+                    .sumiStateMotion(store.isRefreshing)
+                    Spacer()
+                    Text("\(store.visibleOpportunities.count) RESEARCH RECORDS")
+                        .font(.system(size: 9, design: .monospaced))
+                        .tracking(0.5)
+                        .foregroundStyle(SumiColor.mutedInk)
+                }
+                .padding(.vertical, 12)
+                .overlay(alignment: .bottom) { Divider().overlay(SumiColor.ink) }
+
                 SectionTitle("PRIORITY LEDGER")
+                    .padding(.top, 24)
+                    .padding(.bottom, 10)
                 ForEach(store.visibleOpportunities) { opportunity in
                     OpportunityRow(opportunity: opportunity, quickActionPlacement: .today)
                         .sumiRowTransition()
@@ -247,9 +389,15 @@ struct TodayView: View {
                 .sumiCollectionMotion(store.visibleOpportunities.map(\.id))
 
                 SectionTitle("SOURCE HEALTH SUMMARY")
+                    .padding(.top, 30)
+                    .padding(.bottom, 10)
                 SourceHealthLedger(compact: true)
             }
-            .padding(30)
+            .padding(.horizontal, 30)
+            .padding(.top, 22)
+            .padding(.bottom, 48)
+            .frame(maxWidth: 1_500, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .center)
         }
         .sumiPage()
     }
@@ -381,19 +529,23 @@ enum OpportunityQuickActionLayout {
 private struct Metric: View {
     let value: String
     let label: String
+    var emphasized = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(value).font(SumiFont.display(25))
+            Text(value)
+                .font(SumiFont.display(emphasized ? 34 : 27).weight(emphasized ? .bold : .regular))
+                .foregroundStyle(emphasized ? SumiColor.sealDeep : SumiColor.ink)
             Text(label.uppercased())
                 .font(SumiFont.meta(9))
-                .tracking(1.2)
+                .tracking(1.45)
                 .foregroundStyle(SumiColor.mutedInk)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .background(SumiColor.softPaper)
-        .overlay(Rectangle().stroke(SumiColor.rule, lineWidth: 0.5))
+        .frame(minHeight: 90)
+        .padding(.horizontal, 16)
+        .background(emphasized ? SumiColor.sealWash : SumiColor.paper)
+        .overlay(Rectangle().stroke(SumiColor.ink, lineWidth: 0.5))
     }
 }
 
@@ -404,8 +556,8 @@ private struct SectionTitle: View {
     var body: some View {
         Text(text)
             .font(SumiFont.meta(11))
-            .tracking(1.8)
-            .foregroundStyle(SumiColor.mutedInk)
+            .tracking(2)
+            .foregroundStyle(SumiColor.ink)
     }
 }
 
@@ -428,18 +580,15 @@ struct OpportunityRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            opportunityButton
-            if quickActionPlacement == .integratedTrailingRow {
-                HStack(spacing: OpportunityQuickActionLayout.spacing) {
-                    Spacer(minLength: 0)
+            HStack(alignment: .bottom, spacing: 14) {
+                opportunityButton
+                if quickActionPlacement == .integratedTrailingRow {
                     quickActions
+                        .padding(.bottom, 14)
+                        .environment(\.layoutDirection, .leftToRight)
                 }
-                .padding(.top, 2)
-                .padding(.bottom, 12)
-                .environment(\.layoutDirection, .leftToRight)
-                .accessibilityElement(children: .contain)
-                .accessibilityLabel("Opportunity quick actions")
-            } else if quickActionPlacement == .inlineRow {
+            }
+            if quickActionPlacement == .inlineRow {
                 HStack(spacing: 0) {
                     Spacer(minLength: 18)
                     quickActions
@@ -447,6 +596,7 @@ struct OpportunityRow: View {
                 .padding(.bottom, 10)
             }
         }
+        .background(opportunity.isHighPriority ? SumiColor.sealWash.opacity(0.38) : SumiColor.paper)
         .overlay(alignment: .bottom) { Divider().overlay(SumiColor.rule) }
         .sheet(isPresented: Binding(
             get: { store.selectedOpportunityID == opportunity.id },
@@ -512,11 +662,11 @@ struct OpportunityRow: View {
     }
 
     private var rowContent: some View {
-        HStack(alignment: .top, spacing: 16) {
+        HStack(alignment: .top, spacing: 14) {
             Rectangle()
                 .fill(opportunity.isHighPriority ? SumiColor.seal : SumiColor.ink)
-                .frame(width: 2)
-            VStack(alignment: .leading, spacing: 8) {
+                .frame(width: opportunity.isHighPriority ? 4 : 2)
+            VStack(alignment: .leading, spacing: 7) {
                 HStack {
                     StateLabel(text: opportunity.verification.rawValue, urgent: opportunity.verification != .confirmed)
                     StateLabel(text: opportunity.dataTruth.rawValue, urgent: opportunity.dataTruth.isAttentionRequired)
@@ -533,14 +683,14 @@ struct OpportunityRow: View {
                         .foregroundStyle(SumiColor.mutedInk)
                 }
                 Text(opportunity.title)
-                    .font(SumiFont.display(20))
+                    .font(SumiFont.display(21).weight(.bold))
                     .environment(\.layoutDirection, textDirection)
                     .frame(
                         maxWidth: .infinity,
                         alignment: textDirection == .rightToLeft ? .trailing : .leading
                     )
                 Text(opportunity.brief)
-                    .font(SumiFont.body())
+                    .font(SumiFont.body(13))
                     .foregroundStyle(SumiColor.mutedInk)
                     .lineLimit(2)
                     .environment(\.layoutDirection, textDirection)
@@ -559,7 +709,7 @@ struct OpportunityRow: View {
                 .foregroundStyle(SumiColor.mutedInk)
             }
         }
-        .padding(.vertical, 14)
+        .padding(.vertical, 15)
         .contentShape(Rectangle())
     }
 }
