@@ -6,9 +6,9 @@ struct MainShellView: View {
     @State private var selection: AppDestination? = .today
 
     var body: some View {
-        HStack(spacing: 0) {
-            IdentityRail()
-            NavigationSplitView {
+        NavigationSplitView {
+            HStack(spacing: 0) {
+                IdentityRail()
                 VStack(spacing: 0) {
                     VStack(alignment: .leading, spacing: 7) {
                         Text("PRIVATE SIGNAL LEDGER")
@@ -75,12 +75,12 @@ struct MainShellView: View {
                     .overlay(alignment: .top) { Divider().overlay(SumiColor.rule) }
                     .sumiStateMotion(store.statusMessage)
                 }
-                .navigationSplitViewColumnWidth(min: 188, ideal: 210, max: 230)
-            } detail: {
-                destinationView(selection ?? .today)
-                    .id(selection ?? .today)
-                    .transition(.opacity)
             }
+            .navigationSplitViewColumnWidth(min: 238, ideal: 260, max: 280)
+        } detail: {
+            destinationView(selection ?? .today)
+                .id(selection ?? .today)
+                .transition(.opacity)
         }
         .onChange(of: selection) { _, value in
             if let value { store.selectedDestination = value }
