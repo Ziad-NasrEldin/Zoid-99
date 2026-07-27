@@ -2,8 +2,8 @@
 set -euo pipefail
 
 project_root=${0:A:h:h}
-version=${ZOID99_VERSION:-0.2.0}
-build_number=${ZOID99_BUILD_NUMBER:-2}
+version=${ZOID99_VERSION:-0.3.0}
+build_number=${ZOID99_BUILD_NUMBER:-3}
 output_root=${ZOID99_OUTPUT_DIR:-"$project_root/.build/release-artifacts"}
 source_date_epoch=${SOURCE_DATE_EPOCH:-1767225600}
 app_path="$output_root/Zoid 99.app"

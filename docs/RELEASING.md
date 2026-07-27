@@ -30,8 +30,8 @@ ZOID99_VERSION=0.2.0 ZOID99_BUILD_NUMBER=2 ./scripts/build-release.sh
 The build creates:
 
 - `.build/release-artifacts/Zoid 99.app`
-- `.build/release-artifacts/Zoid-99-0.2.0-unsigned.zip`
-- `.build/release-artifacts/Zoid-99-0.2.0-unsigned.zip.sha256`
+- `.build/release-artifacts/Zoid-99-0.3.0-unsigned.zip`
+- `.build/release-artifacts/Zoid-99-0.3.0-unsigned.zip.sha256`
 
 The application executable is a universal binary for Apple silicon and Intel Macs.
 The script normalizes bundle timestamps with `SOURCE_DATE_EPOCH`, which defaults to `2026-01-01T00:00:00Z`.
