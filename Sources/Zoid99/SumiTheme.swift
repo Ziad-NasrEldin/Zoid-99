@@ -74,9 +74,9 @@ struct SumiButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(SumiFont.meta(12))
+            .font(SumiFont.meta(11).weight(.bold))
             .textCase(.uppercase)
-            .tracking(1.2)
+            .tracking(1)
             .foregroundStyle(primary ? SumiColor.paper : urgent ? SumiColor.sealDeep : SumiColor.ink)
             .padding(.horizontal, 14)
             .frame(minHeight: 34)
@@ -365,8 +365,8 @@ struct StateLabel: View {
 
     var body: some View {
         Text(text.uppercased())
-            .font(SumiFont.meta(10))
-            .tracking(1)
+            .font(SumiFont.meta(9).weight(.bold))
+            .tracking(1.15)
             .foregroundStyle(urgent ? SumiColor.sealDeep : SumiColor.mutedInk)
             .padding(.vertical, 4)
             .padding(.horizontal, 7)
@@ -382,18 +382,66 @@ struct LedgerHeader: View {
     let title: String
     let subtitle: String
 
+    private var pageCode: String? {
+        switch title {
+        case "Saved": "02"
+        case "Live Radar": "03"
+        case "Topics": "04"
+        case "Comments": "05"
+        case "Watchlists": "06"
+        case "Notifications": "07"
+        case "Sources & Settings": "08"
+        default: nil
+        }
+    }
+
+    @ViewBuilder
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(eyebrow.uppercased())
-                .font(SumiFont.meta())
-                .tracking(2)
-                .foregroundStyle(SumiColor.sealDeep)
-            Text(title)
-                .font(SumiFont.display(32))
-                .foregroundStyle(SumiColor.ink)
-            Text(subtitle)
-                .font(SumiFont.body())
-                .foregroundStyle(SumiColor.mutedInk)
+        if let pageCode {
+            ZStack(alignment: .topTrailing) {
+                Text(pageCode)
+                    .font(SumiFont.display(118).weight(.bold))
+                    .tracking(-8)
+                    .foregroundStyle(SumiColor.paper.opacity(0.10))
+                    .offset(x: -12, y: -20)
+                    .accessibilityHidden(true)
+                HStack(alignment: .bottom, spacing: 28) {
+                    VStack(alignment: .leading, spacing: 11) {
+                        Text(eyebrow.uppercased())
+                            .font(SumiFont.meta(10))
+                            .tracking(1.6)
+                            .foregroundStyle(SumiColor.paper.opacity(0.68))
+                        Text(title)
+                            .font(SumiFont.display(52).weight(.bold))
+                            .tracking(-1.8)
+                            .foregroundStyle(SumiColor.paper)
+                        Text(subtitle)
+                            .font(SumiFont.body(12))
+                            .foregroundStyle(SumiColor.paper.opacity(0.66))
+                            .lineLimit(2)
+                    }
+                    Spacer(minLength: 20)
+                }
+                .padding(.horizontal, 26)
+                .padding(.vertical, 25)
+            }
+            .frame(maxWidth: .infinity, minHeight: 150, alignment: .leading)
+            .background(SumiColor.ink)
+            .overlay(Rectangle().stroke(SumiColor.ink, lineWidth: 1))
+            .accessibilityElement(children: .combine)
+        } else {
+            VStack(alignment: .leading, spacing: 7) {
+                Text(eyebrow.uppercased())
+                    .font(SumiFont.meta())
+                    .tracking(2)
+                    .foregroundStyle(SumiColor.sealDeep)
+                Text(title)
+                    .font(SumiFont.display(32).weight(.bold))
+                    .foregroundStyle(SumiColor.ink)
+                Text(subtitle)
+                    .font(SumiFont.body())
+                    .foregroundStyle(SumiColor.mutedInk)
+            }
         }
     }
 }

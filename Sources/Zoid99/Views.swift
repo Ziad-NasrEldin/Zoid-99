@@ -214,6 +214,8 @@ struct SavedView: View {
             }
         }
         .padding(30)
+        .frame(maxWidth: 1_500, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .center)
         .sumiPage()
     }
 }
@@ -555,9 +557,13 @@ private struct SectionTitle: View {
 
     var body: some View {
         Text(text)
-            .font(SumiFont.meta(11))
+            .font(SumiFont.meta(10).weight(.bold))
             .tracking(2)
-            .foregroundStyle(SumiColor.ink)
+            .foregroundStyle(SumiColor.paper)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(SumiColor.ink)
     }
 }
 
@@ -932,6 +938,8 @@ struct RadarView: View {
             }
         }
         .padding(30)
+        .frame(maxWidth: 1_500, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .center)
         .sumiPage()
         .onChange(of: store.searchFocusRequest) { _, _ in searchFocused = true }
     }
@@ -985,6 +993,8 @@ struct TopicsView: View {
             }
         }
         .padding(30)
+        .frame(maxWidth: 1_500, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .center)
         .sumiPage()
     }
 
@@ -1048,15 +1058,20 @@ private struct ResearchEmptyState: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title).font(SumiFont.display(21))
+            Text("NO MATCHING EVIDENCE")
+                .font(SumiFont.meta(9).weight(.bold))
+                .tracking(1.6)
+                .foregroundStyle(SumiColor.sealDeep)
+            Text(title).font(SumiFont.display(30).weight(.bold))
             Text(message)
                 .font(SumiFont.body())
                 .foregroundStyle(SumiColor.mutedInk)
+                .frame(maxWidth: 620, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, minHeight: 130, alignment: .leading)
-        .padding(20)
-        .background(SumiColor.softPaper)
-        .overlay(Rectangle().stroke(SumiColor.rule, lineWidth: 1))
+        .frame(maxWidth: .infinity, minHeight: 160, alignment: .leading)
+        .padding(26)
+        .background(SumiColor.paper)
+        .overlay(Rectangle().stroke(SumiColor.ink, lineWidth: 1))
         .accessibilityElement(children: .combine)
     }
 }
@@ -1202,6 +1217,8 @@ struct CommentsView: View {
             }
         }
         .padding(30)
+        .frame(maxWidth: 1_500, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .center)
         .sumiPage()
     }
 }
@@ -1318,6 +1335,8 @@ struct WatchlistsView: View {
             .sumiStateMotion(store.watchlistSyncState)
         }
         .padding(30)
+        .frame(maxWidth: 1_500, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .center)
         .sumiPage()
         .sheet(item: $editingEntry) { entry in
             WatchlistEditor(entry: entry).environmentObject(store)
@@ -1544,6 +1563,8 @@ struct NotificationsView: View {
             }
         }
         .padding(30)
+        .frame(maxWidth: 1_500, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .center)
         .sumiPage()
     }
 }
@@ -1733,6 +1754,8 @@ struct SettingsView: View {
                 .overlay(Rectangle().stroke(SumiColor.rule, lineWidth: 1))
             }
             .padding(30)
+            .frame(maxWidth: 1_500, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .center)
         }
         .sumiPage()
         .task { await store.refreshDiscordConfigurationStatus() }
@@ -1841,8 +1864,10 @@ struct SourceHealthLedger: View {
                 }
                 .font(SumiFont.meta(9))
                 .tracking(1)
+                .foregroundStyle(SumiColor.paper)
+                .padding(.horizontal, 10)
                 .padding(.vertical, 8)
-                .overlay(alignment: .bottom) { Divider().overlay(SumiColor.ink) }
+                .background(SumiColor.ink)
             }
             ForEach(store.sourceHealth) { health in
                 HStack(alignment: .top, spacing: 12) {
@@ -1904,8 +1929,10 @@ private struct ProviderConnectionsLedger: View {
             }
             .font(SumiFont.meta(9))
             .tracking(1)
+            .foregroundStyle(SumiColor.paper)
+            .padding(.horizontal, 10)
             .padding(.vertical, 8)
-            .overlay(alignment: .bottom) { Divider().overlay(SumiColor.ink) }
+            .background(SumiColor.ink)
 
             ForEach(store.providerConnections) { connection in
                 let definition = ProviderDefinition.catalog.first { $0.provider == connection.provider }
