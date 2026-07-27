@@ -127,9 +127,9 @@ struct DiscordOpportunityMessage: Equatable, Sendable {
         let source = opportunity.originalSource ?? opportunity.items.min(by: { $0.publishedAt < $1.publishedAt })
         let reason = concise(opportunity.coverageExplanation, limit: 700)
         var lines = [
-            "**Zoid 99 - High-priority opportunity**",
+            "**Zoid 99 - New research opportunity**",
             concise(opportunity.title, limit: 220),
-            "Priority: High - Score \(opportunity.score.total)",
+            "Priority: \(opportunity.isHighPriority ? "High" : "Standard") - Score \(opportunity.score.total)",
             "Source: \(concise(source?.author ?? "Verified research sources", limit: 120))",
             "Reason: \(reason.isEmpty ? "Strong verified signal with timely regional relevance." : reason)",
         ]
@@ -306,8 +306,7 @@ struct DiscordNotificationCoordinator: Sendable {
             )
         }
         let fresh = opportunities.filter {
-            $0.isHighPriority
-                && $0.dataTruth != .fixture
+            $0.dataTruth != .fixture
                 && !deliveredOpportunityIDs.contains($0.id)
         }
         guard !fresh.isEmpty else {

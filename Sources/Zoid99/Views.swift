@@ -1514,14 +1514,14 @@ struct SettingsView: View {
                     }
                     Divider().overlay(SumiColor.rule)
                     Toggle(
-                        "High-priority opportunities",
+                        "New opportunity alerts",
                         isOn: Binding(
-                            get: { store.discordHighPriorityEnabled },
-                            set: store.setDiscordHighPriorityEnabled
+                            get: { store.discordOpportunityAlertsEnabled },
+                            set: store.setDiscordOpportunityAlertsEnabled
                         )
                     )
                     .disabled(!store.discordEnabled)
-                    Text("Discord receives only new, confirmed high-priority research opportunities. Messages include the title, score, source, reason, and a public HTTPS source link when available. Credentials, diagnostics, and browsing history are never included.")
+                    Text("Discord receives each genuinely new live opportunity added by scheduled refresh or manual topic research. Messages include the title, priority, score, source, reason, and a public HTTPS source link when available. Credentials, diagnostics, and browsing history are never included.")
                         .font(SumiFont.body())
                         .foregroundStyle(SumiColor.mutedInk)
                     Text("Discord is independently eligible 24/7 while Zoid 99 is running, even when native alerts are off. Discord availability and rate limits still apply. Retries are capped at three attempts and 30 seconds. Alerts are recorded locally to prevent repeats after refresh or relaunch.")

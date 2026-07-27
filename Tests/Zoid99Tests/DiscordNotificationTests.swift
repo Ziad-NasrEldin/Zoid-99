@@ -65,6 +65,7 @@ final class DiscordNotificationTests: XCTestCase {
         )
 
         XCTAssertTrue(message.content.contains("Zoid 99"))
+        XCTAssertTrue(message.content.contains("New research opportunity"))
         XCTAssertTrue(message.content.contains("Score 90"))
         XCTAssertTrue(message.content.contains("Source: OpenAI"))
         XCTAssertTrue(message.content.contains("Reason: Arabic coverage remains limited."))
@@ -112,6 +113,93 @@ final class DiscordNotificationTests: XCTestCase {
         let messageCount = await service.messages.count
         XCTAssertEqual(messageCount, 1)
         XCTAssertEqual(first.deliveredOpportunityIDs, [opportunity.id])
+    }
+
+    func testStandardPriorityLiveOpportunityIsDelivered() async {
+        let standardPriority = opportunity(score: standardScore)
+        let service = RecordingDiscordService(configured: true)
+        let coordinator = DiscordNotificationCoordinator(service: service)
+
+        let result = await coordinator.process(
+            opportunities: [standardPriority],
+            enabled: true,
+            deliveredOpportunityIDs: []
+        )
+
+        let messages = await service.messages
+        XCTAssertEqual(messages.count, 1)
+        XCTAssertTrue(messages[0].content.contains("Priority: Standard"))
+        XCTAssertEqual(result.deliveredOpportunityIDs, [standardPriority.id])
+    }
+
+    @MainActor
+    func testRefreshDeliversNewOpportunityOnceAcrossRefreshAndRelaunch() async throws {
+        let source = try XCTUnwrap(opportunity(score: standardScore).items.first)
+        let result = SourceSyncResult(
+            group: source.group,
+            collectedAt: source.collectedAt,
+            items: [source],
+            state: .connected,
+            dataTruth: .live,
+            evidence: "One new live opportunity."
+        )
+        let persistence = DiscordMemoryPersistence()
+        let service = RecordingDiscordService(configured: true)
+        let sync = DiscordResearchSync(refreshResults: [result])
+        let store = AppStore(
+            persistence: persistence,
+            sync: sync,
+            discordService: service,
+            loadDemoDataWhenEmpty: false
+        )
+        await store.refreshDiscordConfigurationStatus()
+        store.setDiscordEnabled(true)
+
+        await store.refresh()
+        await store.refresh()
+
+        var messages = await service.messages
+        XCTAssertEqual(messages.count, 1)
+
+        let restarted = AppStore(
+            persistence: persistence,
+            sync: sync,
+            discordService: service,
+            loadDemoDataWhenEmpty: false
+        )
+        await restarted.refreshDiscordConfigurationStatus()
+        restarted.setDiscordEnabled(true)
+        await restarted.refresh()
+
+        messages = await service.messages
+        XCTAssertEqual(messages.count, 1)
+    }
+
+    @MainActor
+    func testManualTopicResearchDeliversNewOpportunity() async throws {
+        let source = try XCTUnwrap(opportunity(score: standardScore).items.first)
+        let result = SourceSyncResult(
+            group: source.group,
+            collectedAt: source.collectedAt,
+            items: [source],
+            state: .connected,
+            dataTruth: .live,
+            evidence: "Topic research found one new opportunity."
+        )
+        let service = RecordingDiscordService(configured: true)
+        let store = AppStore(
+            persistence: DiscordMemoryPersistence(),
+            sync: DiscordResearchSync(topicResults: [result]),
+            discordService: service,
+            loadDemoDataWhenEmpty: false
+        )
+        await store.refreshDiscordConfigurationStatus()
+        store.setDiscordEnabled(true)
+
+        await store.researchTopicAcrossConnectedSources("model release")
+
+        let messages = await service.messages
+        XCTAssertEqual(messages.count, 1)
     }
 
     func testDiscordDeliveryRemainsIndependentWhenNativeNotificationsAreDisabled() async {
@@ -181,8 +269,27 @@ final class DiscordNotificationTests: XCTestCase {
             + String(repeating: "a", count: 26)
     }
 
+    private var standardScore: ScoreBreakdown {
+        ScoreBreakdown(
+            freshness: 5,
+            credibility: 5,
+            momentum: 5,
+            creatorActivity: 5,
+            arabicCoverageGap: 5,
+            regionalRelevance: 5
+        )
+    }
+
     private func opportunity(
-        sourceURL: URL = URL(string: "https://openai.com/research/example")!
+        sourceURL: URL = URL(string: "https://openai.com/research/example")!,
+        score: ScoreBreakdown = ScoreBreakdown(
+            freshness: 15,
+            credibility: 20,
+            momentum: 15,
+            creatorActivity: 10,
+            arabicCoverageGap: 15,
+            regionalRelevance: 15
+        )
     ) -> Opportunity {
         let source = SourceItem(
             id: UUID(),
@@ -212,18 +319,37 @@ final class DiscordNotificationTests: XCTestCase {
             earliestPublishedAt: source.publishedAt,
             originalSource: source,
             items: [source],
-            score: ScoreBreakdown(
-                freshness: 15,
-                credibility: 20,
-                momentum: 15,
-                creatorActivity: 10,
-                arabicCoverageGap: 15,
-                regionalRelevance: 15
-            ),
+            score: score,
             regionalExplanation: "Relevant to Egypt and the Gulf.",
             coverageExplanation: "Arabic coverage remains limited.",
             disposition: .active
         )
+    }
+}
+
+private final class DiscordMemoryPersistence: ResearchPersistence, @unchecked Sendable {
+    private let lock = NSLock()
+    private var state: ResearchState?
+
+    func load() throws -> ResearchState? {
+        lock.withLock { state }
+    }
+
+    func save(_ state: ResearchState) throws {
+        lock.withLock { self.state = state }
+    }
+}
+
+private struct DiscordResearchSync: ResearchSyncing {
+    var refreshResults: [SourceSyncResult] = []
+    var topicResults: [SourceSyncResult] = []
+
+    func synchronize() async -> [SourceSyncResult] {
+        refreshResults
+    }
+
+    func researchTopic(_ query: String, watchlist: [WatchlistEntry]) async -> [SourceSyncResult] {
+        topicResults
     }
 }
 

@@ -29,7 +29,7 @@ final class AppStore: ObservableObject {
     @Published var notificationPermission: NotificationPermissionState = .notDetermined
     @Published var digestHour = 18
     @Published var discordEnabled = false
-    @Published var discordHighPriorityEnabled = true
+    @Published var discordOpportunityAlertsEnabled = true
     @Published private(set) var discordConfigured = false
     @Published private(set) var discordStatus: DiscordDeliveryStatus = .notConfigured
     @Published var statusMessage = "Ready"
@@ -268,6 +268,7 @@ final class AppStore: ObservableObject {
     func refresh() async {
         isRefreshing = true
         statusMessage = "Synchronizing"
+        let existingOpportunityIDs = Set(opportunities.map(\.id))
         await synchronizeWatchlist()
         let results = await sync.synchronize(watchlist: watchlist)
         let liveItems = results.flatMap { result in
@@ -284,7 +285,9 @@ final class AppStore: ObservableObject {
             opportunities = output.opportunities.map(applyingStoredDisposition)
             comments = output.comments
             await processNotifications(output.notifications)
-            await processDiscordNotifications()
+            await processDiscordNotifications(
+                opportunities.filter { !existingOpportunityIDs.contains($0.id) }
+            )
             lastSuccessfulSyncAt = results.map(\.collectedAt).max()
         }
 
@@ -321,9 +324,13 @@ final class AppStore: ObservableObject {
         guard !trimmed.isEmpty, !isResearchingTopic else { return }
         isResearchingTopic = true
         statusMessage = "Researching topic across connected sources"
+        let existingOpportunityIDs = Set(opportunities.map(\.id))
         await synchronizeWatchlist()
         let results = await sync.researchTopic(trimmed, watchlist: watchlist)
         mergeResearchResults(results)
+        await processDiscordNotifications(
+            opportunities.filter { !existingOpportunityIDs.contains($0.id) }
+        )
         statusMessage = results.flatMap(\.items).isEmpty
             ? "Topic research complete - no new evidence"
             : "Topic research complete"
@@ -816,8 +823,8 @@ final class AppStore: ObservableObject {
         persistReportingFailure()
     }
 
-    func setDiscordHighPriorityEnabled(_ enabled: Bool) {
-        discordHighPriorityEnabled = enabled
+    func setDiscordOpportunityAlertsEnabled(_ enabled: Bool) {
+        discordOpportunityAlertsEnabled = enabled
         settings.discordHighPriorityEnabled = enabled
         persistReportingFailure()
     }
@@ -993,12 +1000,12 @@ final class AppStore: ObservableObject {
         notificationPermission = settings.notificationPermission
         digestHour = settings.digestHour
         discordEnabled = settings.discordEnabled
-        discordHighPriorityEnabled = settings.discordHighPriorityEnabled
+        discordOpportunityAlertsEnabled = settings.discordHighPriorityEnabled
     }
 
-    private func processDiscordNotifications() async {
+    private func processDiscordNotifications(_ candidates: [Opportunity]) async {
         let result = await DiscordNotificationCoordinator(service: discordService).process(
-            opportunities: discordHighPriorityEnabled ? opportunities : [],
+            opportunities: discordOpportunityAlertsEnabled ? candidates : [],
             enabled: discordEnabled,
             deliveredOpportunityIDs: settings.discordDeliveredOpportunityIDs,
             now: now()
@@ -1237,7 +1244,7 @@ final class AppStore: ObservableObject {
         settings.notificationPermission = notificationPermission
         settings.digestHour = digestHour
         settings.discordEnabled = discordEnabled
-        settings.discordHighPriorityEnabled = discordHighPriorityEnabled
+        settings.discordHighPriorityEnabled = discordOpportunityAlertsEnabled
         try persistence.save(
             ResearchState(
                 sourceItems: sourceItems,
