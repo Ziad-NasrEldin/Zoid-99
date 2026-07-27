@@ -237,6 +237,10 @@ struct OpportunityRow: View {
         .padding(.vertical, 14)
         .contentShape(Rectangle())
         .onTapGesture { store.selectedOpportunityID = opportunity.id }
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction {
+            store.selectedOpportunityID = opportunity.id
+        }
         .accessibilityLabel(
             "\(opportunity.title), \(opportunity.verification.rawValue), "
                 + "\(opportunity.items.count) sources"
