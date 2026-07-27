@@ -169,6 +169,11 @@ struct OpportunityRow: View {
     @EnvironmentObject private var store: AppStore
     let opportunity: Opportunity
 
+    private var originalSourceLink: (label: String, url: URL)? {
+        guard let url = opportunity.originalSource?.url else { return nil }
+        return (SourceURLLabel.shortened(url), url)
+    }
+
     private var textDirection: LayoutDirection {
         ResearchTextDirection.resolve(
             languageCode: opportunity.originalSource?.language,
@@ -177,54 +182,61 @@ struct OpportunityRow: View {
     }
 
     var body: some View {
-        Button {
-            store.selectedOpportunityID = opportunity.id
-        } label: {
-            HStack(alignment: .top, spacing: 16) {
-                Rectangle()
-                    .fill(opportunity.isHighPriority ? SumiColor.seal : SumiColor.ink)
-                    .frame(width: 2)
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        StateLabel(text: opportunity.verification.rawValue, urgent: opportunity.verification != .confirmed)
-                        StateLabel(text: opportunity.dataTruth.rawValue, urgent: opportunity.dataTruth.isAttentionRequired)
-                        if opportunity.isHighPriority { StateLabel(text: "High priority", urgent: true) }
-                        Spacer()
-                        Text(opportunity.earliestPublishedAt, style: .relative)
-                            .font(SumiFont.meta(10))
-                            .foregroundStyle(SumiColor.mutedInk)
-                    }
-                    Text(opportunity.title)
-                        .font(SumiFont.display(20))
-                        .environment(\.layoutDirection, textDirection)
-                        .frame(
-                            maxWidth: .infinity,
-                            alignment: textDirection == .rightToLeft ? .trailing : .leading
-                        )
-                    Text(opportunity.brief)
-                        .font(SumiFont.body())
+        HStack(alignment: .top, spacing: 16) {
+            Rectangle()
+                .fill(opportunity.isHighPriority ? SumiColor.seal : SumiColor.ink)
+                .frame(width: 2)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    StateLabel(text: opportunity.verification.rawValue, urgent: opportunity.verification != .confirmed)
+                    StateLabel(text: opportunity.dataTruth.rawValue, urgent: opportunity.dataTruth.isAttentionRequired)
+                    if let originalSourceLink {
+                        Link(destination: originalSourceLink.url) {
+                            Text(originalSourceLink.label.uppercased())
+                                .font(SumiFont.meta(10))
+                                .tracking(0.8)
+                                .lineLimit(1)
+                        }
+                        .buttonStyle(.plain)
                         .foregroundStyle(SumiColor.mutedInk)
-                        .lineLimit(2)
-                        .environment(\.layoutDirection, textDirection)
-                        .frame(
-                            maxWidth: .infinity,
-                            alignment: textDirection == .rightToLeft ? .trailing : .leading
-                        )
-                    HStack(spacing: 14) {
-                        Text("SCORE \(opportunity.score.total)")
-                        Text("\(opportunity.items.count) SOURCES")
-                        Text(opportunity.coverageExplanation)
-                            .lineLimit(1)
+                        .help(originalSourceLink.url.absoluteString)
                     }
-                    .font(SumiFont.meta(9))
-                    .tracking(0.8)
-                    .foregroundStyle(SumiColor.mutedInk)
+                    if opportunity.isHighPriority { StateLabel(text: "High priority", urgent: true) }
+                    Spacer()
+                    Text(opportunity.earliestPublishedAt, style: .relative)
+                        .font(SumiFont.meta(10))
+                        .foregroundStyle(SumiColor.mutedInk)
                 }
+                Text(opportunity.title)
+                    .font(SumiFont.display(20))
+                    .environment(\.layoutDirection, textDirection)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: textDirection == .rightToLeft ? .trailing : .leading
+                    )
+                Text(opportunity.brief)
+                    .font(SumiFont.body())
+                    .foregroundStyle(SumiColor.mutedInk)
+                    .lineLimit(2)
+                    .environment(\.layoutDirection, textDirection)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: textDirection == .rightToLeft ? .trailing : .leading
+                    )
+                HStack(spacing: 14) {
+                    Text("SCORE \(opportunity.score.total)")
+                    Text("\(opportunity.items.count) SOURCES")
+                    Text(opportunity.coverageExplanation)
+                        .lineLimit(1)
+                }
+                .font(SumiFont.meta(9))
+                .tracking(0.8)
+                .foregroundStyle(SumiColor.mutedInk)
             }
-            .padding(.vertical, 14)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .padding(.vertical, 14)
+        .contentShape(Rectangle())
+        .onTapGesture { store.selectedOpportunityID = opportunity.id }
         .accessibilityLabel(
             "\(opportunity.title), \(opportunity.verification.rawValue), "
                 + "\(opportunity.items.count) sources"
@@ -237,6 +249,18 @@ struct OpportunityRow: View {
         )) {
             OpportunityDetailView(opportunityID: opportunity.id)
         }
+    }
+}
+
+private enum SourceURLLabel {
+    static func shortened(_ url: URL) -> String {
+        let host = (url.host(percentEncoded: false) ?? url.host ?? url.absoluteString)
+            .replacingOccurrences(of: "www.", with: "")
+        let path = url.path(percentEncoded: false)
+            .split(separator: "/")
+            .prefix(2)
+            .joined(separator: "/")
+        return path.isEmpty ? host : "\(host)/\(path)"
     }
 }
 
