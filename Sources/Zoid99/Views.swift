@@ -521,15 +521,10 @@ struct OpportunityRow: View {
                     StateLabel(text: opportunity.verification.rawValue, urgent: opportunity.verification != .confirmed)
                     StateLabel(text: opportunity.dataTruth.rawValue, urgent: opportunity.dataTruth.isAttentionRequired)
                     if let originalSourceLink {
-                        Link(destination: originalSourceLink.url) {
-                            Text(originalSourceLink.label.uppercased())
-                                .font(SumiFont.meta(10))
-                                .tracking(0.8)
-                                .lineLimit(1)
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(SumiColor.mutedInk)
-                        .help(originalSourceLink.url.absoluteString)
+                        OpportunitySourceLink(
+                            label: originalSourceLink.label,
+                            url: originalSourceLink.url
+                        )
                     }
                     if opportunity.isHighPriority { StateLabel(text: "High priority", urgent: true) }
                     Spacer()
@@ -566,6 +561,39 @@ struct OpportunityRow: View {
         }
         .padding(.vertical, 14)
         .contentShape(Rectangle())
+    }
+}
+
+private struct OpportunitySourceLink: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let label: String
+    let url: URL
+    @State private var hovered = false
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        Link(destination: url) {
+            Text(label.uppercased())
+                .font(SumiFont.meta(10))
+                .tracking(0.8)
+                .lineLimit(1)
+                .padding(.vertical, 2)
+                .overlay(alignment: .bottom) {
+                    Rectangle()
+                        .fill(SumiColor.seal.opacity(hovered || focused ? 1 : 0.6))
+                        .frame(height: hovered || focused ? 2 : 1)
+                }
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(hovered || focused ? SumiColor.seal : SumiColor.sealDeep)
+        .focusEffectDisabled()
+        .focused($focused)
+        .onHover { hovered = $0 }
+        .animation(
+            .easeOut(duration: reduceMotion ? SumiMotion.Duration.reduced : SumiMotion.Duration.hover),
+            value: hovered || focused
+        )
+        .help(url.absoluteString)
     }
 }
 
