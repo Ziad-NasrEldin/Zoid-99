@@ -129,6 +129,15 @@ final class SourceConnectorContractTests: XCTestCase {
         XCTAssertEqual(result.items.count, 1)
         XCTAssertEqual(result.items[0].externalID, "91002")
         XCTAssertEqual(result.items[0].title, "Version 2.1.0")
+        XCTAssertEqual(
+            result.items[0].summary,
+            """
+            ## What's changed
+
+            - Added a supported inference endpoint.
+            - Fixed source formatting for release notes.
+            """
+        )
         XCTAssertEqual(result.items[0].author, "example-ai")
         XCTAssertEqual(result.items[0].url.absoluteString, "https://github.com/example/ai-runtime/releases/tag/v2.1.0")
         XCTAssertEqual(result.items[0].publishedAt, Date(timeIntervalSince1970: 1_784_546_553))

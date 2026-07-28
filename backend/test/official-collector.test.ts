@@ -92,6 +92,45 @@ test("a healthy official feed with zero records stays connected and does not fai
   assert.match(health?.evidence ?? "", /0 items collected/);
 });
 
+test("the server collector preserves source text paragraphs and release-note bullets", async () => {
+  const repository = new MemoryRepository();
+  repository.opportunities = [];
+  const batches: ResearchBatch[] = [];
+  repository.persistResearchBatch = async (batch) => {
+    batches.push(batch);
+    return { ...fixtureOpportunity, title: batch.opportunity.title };
+  };
+  const response = new Response(JSON.stringify([{
+    id: 92001,
+    tag_name: "v2.1.219",
+    name: "v2.1.219",
+    body: "## What's changed\n\n- Added readable source formatting.\n- Fixed collapsed release notes.",
+    html_url: "https://github.com/example/runtime/releases/tag/v2.1.219",
+    published_at: "2026-07-24T18:14:00.000Z",
+    author: { login: "example-runtime" },
+    draft: false,
+  }]), { status: 200, headers: { "content-type": "application/json" } });
+
+  await collectOfficialSources({
+    repository,
+    now: () => new Date("2026-07-24T19:00:00.000Z"),
+    catalog: [{
+      id: "test-github",
+      name: "Test GitHub",
+      kind: "github",
+      endpoint: "https://api.github.com/repos/example/runtime/releases",
+      homepage: "https://github.com/example/runtime",
+    }],
+    fetchImplementation: async () => response,
+  });
+
+  assert.equal(
+    batches[0]?.opportunity.brief,
+    "## What's changed\n\n- Added readable source formatting.\n- Fixed collapsed release notes.",
+  );
+  assert.equal(batches[0]?.sourceItems[0]?.summary, batches[0]?.opportunity.brief);
+});
+
 test("the default catalog includes the credential-free official AI sources", () => {
   assert.deepEqual(
     officialSourceCatalog.map((source) => source.id),

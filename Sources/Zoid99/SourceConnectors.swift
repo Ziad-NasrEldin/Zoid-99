@@ -413,15 +413,31 @@ private enum TopicKey {
 
 private enum PlainText {
     static func fromHTML(_ value: String) -> String {
-        value.replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
+        value.replacingOccurrences(
+                of: "</?(p|div|section|article|h[1-6]|ul|ol|blockquote)[^>]*>",
+                with: "\n\n",
+                options: [.regularExpression, .caseInsensitive]
+            )
+            .replacingOccurrences(
+                of: "<(br|li)[^>]*>",
+                with: "\n",
+                options: [.regularExpression, .caseInsensitive]
+            )
+            .replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
             .replacingOccurrences(of: "&amp;", with: "&")
             .replacingOccurrences(of: "&lt;", with: "<")
             .replacingOccurrences(of: "&gt;", with: ">")
             .replacingOccurrences(of: "&quot;", with: "\"")
             .replacingOccurrences(of: "&#39;", with: "'")
-            .components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
+            .components(separatedBy: .newlines)
+            .map {
+                $0.components(separatedBy: .whitespaces)
+                    .filter { !$0.isEmpty }
+                    .joined(separator: " ")
+            }
+            .joined(separator: "\n")
+            .replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 

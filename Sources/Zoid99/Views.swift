@@ -1142,14 +1142,12 @@ private struct TopicEvidenceRow: View {
                         )
                 }
                 .foregroundStyle(SumiColor.ink)
-                Text(item.summary)
-                    .font(SumiFont.body())
-                    .foregroundStyle(SumiColor.mutedInk)
-                    .environment(\.layoutDirection, direction)
-                    .frame(
-                        maxWidth: .infinity,
-                        alignment: direction == .rightToLeft ? .trailing : .leading
-                    )
+                FormattedResearchText(
+                    item.summary,
+                    languageCode: item.language,
+                    bodySize: 13,
+                    foreground: SumiColor.mutedInk
+                )
                 Text("\(item.author) - \(item.country) - \(item.language)")
                     .font(SumiFont.meta(9))
                     .foregroundStyle(SumiColor.mutedInk)
@@ -2106,15 +2104,11 @@ struct OpportunityDetailView: View {
                         }
                         .sumiStateMotion(opportunity.disposition)
                         Divider().overlay(SumiColor.ink)
-                        Text(opportunity.brief)
-                            .font(SumiFont.body(16))
-                            .environment(
-                                \.layoutDirection,
-                                ResearchTextDirection.resolve(
-                                    languageCode: opportunity.originalSource?.language,
-                                    text: opportunity.brief
-                                ) == .rightToLeft ? .rightToLeft : .leftToRight
-                            )
+                        FormattedResearchText(
+                            opportunity.brief,
+                            languageCode: opportunity.originalSource?.language,
+                            bodySize: 16
+                        )
                         ScoreLedger(score: opportunity.score)
                         DetailSection(title: "ARABIC COVERAGE GAP", content: opportunity.coverageExplanation)
                         DetailSection(title: "EGYPT & GULF RELEVANCE", content: opportunity.regionalExplanation)
@@ -2248,6 +2242,112 @@ private struct ScoreLedger: View {
         .padding(14)
         .background(SumiColor.softPaper)
         .overlay(Rectangle().stroke(SumiColor.rule, lineWidth: 1))
+    }
+}
+
+private struct FormattedResearchText: View {
+    let blocks: [ResearchTextBlock]
+    let direction: LayoutDirection
+    let bodySize: CGFloat
+    let foreground: Color
+
+    init(
+        _ text: String,
+        languageCode: String?,
+        bodySize: CGFloat = 14,
+        foreground: Color = SumiColor.ink
+    ) {
+        self.blocks = ResearchTextBlock.parse(text)
+        self.direction = ResearchTextDirection.resolve(languageCode: languageCode, text: text) == .rightToLeft
+            ? .rightToLeft
+            : .leftToRight
+        self.bodySize = bodySize
+        self.foreground = foreground
+    }
+
+    var body: some View {
+        VStack(alignment: direction == .rightToLeft ? .trailing : .leading, spacing: 9) {
+            ForEach(blocks) { block in
+                switch block.kind {
+                case let .heading(text):
+                    Text(text)
+                        .font(SumiFont.display(max(bodySize + 3, 16)))
+                        .foregroundStyle(SumiColor.ink)
+                case let .bullet(text):
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text("•").font(SumiFont.body(bodySize)).foregroundStyle(foreground)
+                        Text(text).font(SumiFont.body(bodySize)).foregroundStyle(foreground)
+                    }
+                case let .paragraph(text):
+                    Text(text).font(SumiFont.body(bodySize)).foregroundStyle(foreground)
+                }
+            }
+        }
+        .environment(\.layoutDirection, direction)
+        .frame(
+            maxWidth: .infinity,
+            alignment: direction == .rightToLeft ? .trailing : .leading
+        )
+        .textSelection(.enabled)
+    }
+}
+
+private struct ResearchTextBlock: Identifiable {
+    enum Kind {
+        case heading(String)
+        case bullet(String)
+        case paragraph(String)
+    }
+
+    let id: Int
+    let kind: Kind
+
+    static func parse(_ text: String) -> [ResearchTextBlock] {
+        let normalized = text
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(
+                of: "\\s+-\\s+(Added|Fixed|Changed|Removed|Updated|Improved)\\b",
+                with: "\n- ",
+                options: .regularExpression
+            )
+        var blocks: [ResearchTextBlock] = []
+        var paragraph: [String] = []
+
+        func flushParagraph() {
+            guard !paragraph.isEmpty else { return }
+            blocks.append(ResearchTextBlock(id: blocks.count, kind: .paragraph(paragraph.joined(separator: " "))))
+            paragraph.removeAll()
+        }
+
+        for rawLine in normalized.components(separatedBy: .newlines) {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty else {
+                flushParagraph()
+                continue
+            }
+            if line.hasPrefix("#") {
+                flushParagraph()
+                blocks.append(ResearchTextBlock(id: blocks.count, kind: .heading(cleanHeading(line))))
+            } else if let bullet = cleanBullet(line) {
+                flushParagraph()
+                blocks.append(ResearchTextBlock(id: blocks.count, kind: .bullet(bullet)))
+            } else {
+                paragraph.append(line)
+            }
+        }
+        flushParagraph()
+        return blocks.isEmpty ? [ResearchTextBlock(id: 0, kind: .paragraph(text))] : blocks
+    }
+
+    private static func cleanHeading(_ line: String) -> String {
+        line.drop(while: { -e == "#" || -e == " " }).description
+    }
+
+    private static func cleanBullet(_ line: String) -> String? {
+        for marker in ["- ", "* ", "• "] where line.hasPrefix(marker) {
+            return String(line.dropFirst(marker.count))
+        }
+        return nil
     }
 }
 

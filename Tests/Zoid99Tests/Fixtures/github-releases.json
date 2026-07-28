@@ -3,7 +3,7 @@
     "id": 91002,
     "tag_name": "v2.1.0",
     "name": "Version 2.1.0",
-    "body": "Adds a supported inference endpoint.",
+    "body": "## What's changed\n\n- Added a supported inference endpoint.\n- Fixed source formatting for release notes.",
     "html_url": "https://github.com/example/ai-runtime/releases/tag/v2.1.0?utm_campaign=releases",
     "published_at": "2026-07-20T11:22:33Z",
     "author": {

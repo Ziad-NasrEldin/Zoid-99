@@ -156,7 +156,7 @@ function parseGitHubReleases(value: unknown): CollectedRecord[] {
     return [{
       externalID: String(release.id ?? url),
       title,
-      summary: stringValue(release.body),
+      summary: sourceTextValue(release.body),
       author: typeof release.author === "object" && release.author !== null
         ? stringValue((release.author as Record<string, unknown>).login)
         : "",
@@ -185,7 +185,7 @@ export function parseSyndication(xml: string, kind: "rss" | "atom"): CollectedRe
     return [{
       externalID: textValue(kind === "rss" ? entry.guid : entry.id) || link,
       title,
-      summary: textValue(kind === "rss" ? entry.description : entry.summary),
+      summary: sourceTextValue(kind === "rss" ? entry.description : entry.summary),
       author: textValue(kind === "rss" ? entry.author : objectValue(entry.author).name),
       url: link,
       publishedAt,
@@ -264,6 +264,23 @@ function textValue(value: unknown): string {
     return stringValue(object["#text"] ?? object.__cdata);
   }
   return stringValue(value);
+}
+
+function sourceTextValue(value: unknown): string {
+  return textValue(value)
+    .replace(/<\/?(p|div|section|article|h[1-6]|ul|ol|blockquote)[^>]*>/gi, "\n\n")
+    .replace(/<(br|li)[^>]*>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#39;/g, "'")
+    .split(/\r?\n/)
+    .map((line) => line.trim().replace(/[ \t]+/g, " "))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function dateString(value: unknown): string | null {
