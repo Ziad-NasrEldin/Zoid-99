@@ -88,7 +88,7 @@ final class IngestionSynchronizationAcceptanceTests: XCTestCase {
             baseURL: URL(string: "https://backend.example")!,
             token: String(repeating: "t", count: 32),
             session: URLSession(configuration: configuration),
-            connectors: []
+            connectors: [AcceptanceConnector(item: item)]
         )
         let health = SourceHealth(
             group: .official,

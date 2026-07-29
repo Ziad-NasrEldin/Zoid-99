@@ -50,7 +50,7 @@ actor BackendResearchSync {
         let sourceHealth = makeSourceHealth(collections)
 
         do {
-            if !changedItems.isEmpty {
+            if !changedItems.isEmpty && (seed?.sourceItems.isEmpty ?? true) {
                 let output = ResearchPipeline().run(items: changedItems)
                 try await ingest(output: output, sourceHealth: sourceHealth)
             }
