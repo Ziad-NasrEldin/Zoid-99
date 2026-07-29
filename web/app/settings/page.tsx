@@ -51,11 +51,13 @@ export default async function SettingsPage() {
   return (
     <div className="workspace-page">
       <header className="page-header">
-        <p className="page-eyebrow">08 / Configure</p>
-        <h1>Settings</h1>
-        <p className="page-description">
-          Provider access and notification preferences stay server-managed and auditable.
-        </p>
+        <div>
+          <p className="page-eyebrow">08 / Configure</p>
+          <h1>Settings</h1>
+          <p className="page-description">
+            Provider access and notification preferences stay server-managed and auditable.
+          </p>
+        </div>
         <p className="page-state">SERVER SETTINGS / CONFLICT-SAFE</p>
       </header>
       <SettingsForms
@@ -67,4 +69,3 @@ export default async function SettingsPage() {
     </div>
   );
 }
-

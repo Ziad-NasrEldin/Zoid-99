@@ -556,7 +556,12 @@ h1 {
   display: none;
 }
 
-@media (max-width: 760px) {
+/*
+ * The desktop rail takes 240px from the available page width.
+ * Below 1024px, keeping it would leave data-heavy screens with less room than
+ * their tablet layouts need, so use the touch navigation shell instead.
+ */
+@media (max-width: 1023px) {
   .operator-login-shell {
     grid-template-rows: 50px minmax(0, 1fr) 38px;
   }

@@ -34,11 +34,11 @@ test("Today opens a real evidence-preserving detail and persists a disposition t
 
   await expect(page.getByRole("heading", { name: "Today" })).toBeVisible();
   await expect(page.getByText("Live data")).toBeVisible();
-  await expect(page.getByRole("link", { name: "Official release 99" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Official release 99", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Watch" }).click();
   await expect(page.getByRole("button", { name: "Watch" })).toHaveAttribute("aria-pressed", "true");
 
-  await page.getByRole("link", { name: "Official release 99" }).click();
+  await page.getByRole("link", { name: "Official release 99", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/opportunities/${opportunityID}$`));
   await expect(page.getByRole("heading", { name: "Score breakdown" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Regional reading" })).toBeVisible();

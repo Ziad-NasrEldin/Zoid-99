@@ -23,11 +23,13 @@ export default async function SourcesPage() {
   return (
     <div className="workspace-page">
       <header className="page-header">
-        <p className="page-eyebrow">07 / Collection truth</p>
-        <h1>Sources</h1>
-        <p className="page-description">
-          A live ledger of collection health, recent evidence, and the next repair action.
-        </p>
+        <div>
+          <p className="page-eyebrow">07 / Collection truth</p>
+          <h1>Sources</h1>
+          <p className="page-description">
+            A live ledger of collection health, recent evidence, and the next repair action.
+          </p>
+        </div>
         <p className="page-state">SERVER LEDGER / WRITTEN STATES</p>
       </header>
       {result.sourceHealth ? (
@@ -50,4 +52,3 @@ export default async function SourcesPage() {
     </div>
   );
 }
-
