@@ -42,6 +42,10 @@ final class IngestionSynchronizationAcceptanceTests: XCTestCase {
         XCTAssertEqual(official.dataTruth, .live)
         XCTAssertEqual(official.items.first?.externalID, item.externalID)
         XCTAssertEqual(official.items.first?.url, item.url)
+        XCTAssertEqual(
+            official.canonicalOpportunities?.first?.id,
+            UUID(uuidString: "20000000-0000-4000-8000-000000000099")
+        )
         let paths = await recorder.paths()
         XCTAssertEqual(paths, ["/v1/ingestion", "/v1/bootstrap"])
         let ingestion = try await recorder.ingestionJSON()
@@ -54,6 +58,173 @@ final class IngestionSynchronizationAcceptanceTests: XCTestCase {
         let items = try XCTUnwrap(batches.first?["sourceItems"] as? [[String: Any]])
         XCTAssertEqual(items.first?["url"] as? String, item.url.absoluteString)
         XCTAssertEqual(items.first?["publishedAt"] as? String, ISO8601DateFormatter().string(from: item.publishedAt))
+    }
+
+    func testEmptyBackendImportsTheNativeCacheThenReturnsCanonicalServerIDs() async throws {
+        let item = SourceItem(
+            id: UUID(uuidString: "10000000-0000-4000-8000-000000000088")!,
+            group: .official,
+            externalID: "native-cache-88",
+            title: "Native cache release",
+            summary: "Existing native research should become available to the web client.",
+            author: "Official publisher",
+            url: URL(string: "https://official.example/releases/88")!,
+            publishedAt: Date(timeIntervalSince1970: 1_784_808_800),
+            collectedAt: Date(timeIntervalSince1970: 1_784_809_100),
+            language: "en",
+            country: "US",
+            topicKey: "native-cache-88",
+            isOriginalSource: true,
+            credibility: 1,
+            engagement: 0,
+            verification: .confirmed,
+            dataTruth: .cached
+        )
+        let recorder = RequestRecorder(item: item, startsEmpty: true)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [AcceptanceURLProtocol.self]
+        AcceptanceURLProtocol.recorder = recorder
+        let sync = BackendResearchSync(
+            baseURL: URL(string: "https://backend.example")!,
+            token: String(repeating: "t", count: 32),
+            session: URLSession(configuration: configuration),
+            connectors: []
+        )
+        let health = SourceHealth(
+            group: .official,
+            state: .connected,
+            lastActivity: item.collectedAt,
+            evidence: "Native cache contains verified research.",
+            repairAction: "Review",
+            dataTruth: .cached
+        )
+
+        let results = await sync.synchronize(
+            seed: ResearchSyncSeed(
+                sourceItems: [item],
+                sourceHealth: [health],
+                notifications: [],
+                sourceBlocklist: []
+            )
+        )
+
+        XCTAssertEqual(
+            results.first?.canonicalOpportunities?.first?.id,
+            UUID(uuidString: "20000000-0000-4000-8000-000000000099")
+        )
+        XCTAssertEqual(results.first?.canonicalOpportunities?.first?.items.first?.externalID, item.externalID)
+        let paths = await recorder.paths()
+        XCTAssertEqual(paths, ["/v1/bootstrap", "/v1/ingestion", "/v1/bootstrap"])
+    }
+
+    func testBlockedConnectorItemsNeverEnterTheSharedBackend() async throws {
+        let item = SourceItem(
+            id: UUID(),
+            group: .official,
+            externalID: "blocked-arxiv-item",
+            title: "Blocked source item",
+            summary: "This record must stay out of the shared dataset.",
+            author: "Blocked publisher",
+            url: URL(string: "https://arxiv.org/abs/2607.00001")!,
+            publishedAt: Date(timeIntervalSince1970: 1_784_808_800),
+            collectedAt: Date(timeIntervalSince1970: 1_784_809_100),
+            language: "en",
+            country: "US",
+            topicKey: "blocked-arxiv-item",
+            isOriginalSource: true,
+            credibility: 1,
+            engagement: 0,
+            verification: .confirmed,
+            dataTruth: .live
+        )
+        let recorder = RequestRecorder(item: item)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [AcceptanceURLProtocol.self]
+        AcceptanceURLProtocol.recorder = recorder
+        let sync = BackendResearchSync(
+            baseURL: URL(string: "https://backend.example")!,
+            token: String(repeating: "t", count: 32),
+            session: URLSession(configuration: configuration),
+            connectors: [AcceptanceConnector(item: item)]
+        )
+
+        _ = await sync.synchronize(
+            seed: ResearchSyncSeed(
+                sourceItems: [],
+                sourceHealth: [],
+                notifications: [],
+                sourceBlocklist: [
+                    SourceBlockRule(
+                        domain: "arxiv.org",
+                        label: "arxiv.org",
+                        createdAt: item.collectedAt
+                    ),
+                ]
+            )
+        )
+
+        let paths = await recorder.paths()
+        XCTAssertEqual(paths, ["/v1/bootstrap"])
+    }
+
+    func testExistingBackendOpportunityReceivesNativeNotificationHistory() async throws {
+        let item = SourceItem(
+            id: UUID(uuidString: "10000000-0000-4000-8000-000000000077")!,
+            group: .official,
+            externalID: "native-notification-77",
+            title: "Native notification release",
+            summary: "Existing native notification history should become available to the web client.",
+            author: "Official publisher",
+            url: URL(string: "https://official.example/releases/77")!,
+            publishedAt: Date(timeIntervalSince1970: 1_784_708_800),
+            collectedAt: Date(timeIntervalSince1970: 1_784_709_100),
+            language: "en",
+            country: "US",
+            topicKey: "native-notification-77",
+            isOriginalSource: true,
+            credibility: 1,
+            engagement: 0,
+            verification: .confirmed,
+            dataTruth: .cached
+        )
+        let opportunity = ResearchPipeline().run(items: [item], now: item.collectedAt).opportunities[0]
+        let notification = NotificationRecord(
+            id: UUID(uuidString: "30000000-0000-4000-8000-000000000077")!,
+            opportunityID: opportunity.id,
+            title: opportunity.title,
+            delivery: .immediate,
+            createdAt: item.collectedAt,
+            isRead: false
+        )
+        let recorder = RequestRecorder(item: item)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [AcceptanceURLProtocol.self]
+        AcceptanceURLProtocol.recorder = recorder
+        let sync = BackendResearchSync(
+            baseURL: URL(string: "https://backend.example")!,
+            token: String(repeating: "t", count: 32),
+            session: URLSession(configuration: configuration),
+            connectors: []
+        )
+
+        _ = await sync.synchronize(
+            seed: ResearchSyncSeed(
+                sourceItems: [item],
+                opportunities: [opportunity],
+                sourceHealth: [],
+                notifications: [notification],
+                sourceBlocklist: []
+            )
+        )
+
+        let paths = await recorder.paths()
+        XCTAssertEqual(paths, ["/v1/bootstrap", "/v1/ingestion", "/v1/bootstrap"])
+        let ingestion = try await recorder.ingestionJSON()
+        let batches = try XCTUnwrap(ingestion["batches"] as? [[String: Any]])
+        let uploadedNotification = try XCTUnwrap(batches.first?["notification"] as? [String: Any])
+        XCTAssertEqual(uploadedNotification["title"] as? String, notification.title)
+        XCTAssertEqual(uploadedNotification["delivery"] as? String, "Immediate")
+        XCTAssertEqual(uploadedNotification["isRead"] as? Bool, false)
     }
 
     func testLargeStoryClusterIsSplitIntoRequestsBelowBackendBodyLimit() async throws {
@@ -186,11 +357,13 @@ private final class AcceptanceURLProtocol: URLProtocol, @unchecked Sendable {
 
 private actor RequestRecorder {
     private let item: SourceItem
+    private let startsEmpty: Bool
     private var recordedPaths: [String] = []
     private var ingestionBodies: [Data] = []
 
-    init(item: SourceItem) {
+    init(item: SourceItem, startsEmpty: Bool = false) {
         self.item = item
+        self.startsEmpty = startsEmpty
     }
 
     func response(for request: URLRequest, body: Data) -> (Int, [String: String], Data) {
@@ -231,9 +404,35 @@ private actor RequestRecorder {
             "engagement": item.engagement,
             "verification": item.verification.rawValue,
         ]
+        let opportunity = ResearchPipeline().run(items: [item], now: item.collectedAt).opportunities[0]
+        let apiOpportunity: [String: Any] = [
+            "id": "20000000-0000-4000-8000-000000000099",
+            "topicKey": opportunity.topicKey,
+            "title": opportunity.title,
+            "brief": opportunity.brief,
+            "verification": opportunity.verification.rawValue,
+            "earliestPublishedAt": formatter.string(from: opportunity.earliestPublishedAt),
+            "originalSource": apiItem,
+            "items": [apiItem],
+            "score": [
+                "freshness": opportunity.score.freshness,
+                "credibility": opportunity.score.credibility,
+                "momentum": opportunity.score.momentum,
+                "creatorActivity": opportunity.score.creatorActivity,
+                "arabicCoverageGap": opportunity.score.arabicCoverageGap,
+                "regionalRelevance": opportunity.score.regionalRelevance,
+            ],
+            "regionalExplanation": opportunity.regionalExplanation,
+            "coverageExplanation": opportunity.coverageExplanation,
+            "disposition": opportunity.disposition.rawValue,
+            "dispositionUpdatedAt": formatter.string(from: item.collectedAt),
+            "dispositionMutationID": NSNull(),
+            "isHighPriority": opportunity.isHighPriority,
+        ]
+        let opportunities: [[String: Any]] = startsEmpty && ingestionBodies.isEmpty ? [] : [apiOpportunity]
         let body = try! JSONSerialization.data(withJSONObject: [
             "sourceHealth": health,
-            "opportunities": [["items": [apiItem]]],
+            "opportunities": opportunities,
             "watchlist": [],
             "notifications": [],
         ])

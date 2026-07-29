@@ -1,5 +1,4 @@
 import Foundation
-import Security
 
 struct SourceSyncResult: Sendable {
     let group: SourceGroup
@@ -8,16 +7,46 @@ struct SourceSyncResult: Sendable {
     let state: ConnectionState
     let dataTruth: DataTruth
     let evidence: String
+    var canonicalOpportunities: [Opportunity]? = nil
+    var canonicalNotifications: [NotificationRecord]? = nil
 }
+
+struct ResearchSyncSeed: Sendable {
+    let sourceItems: [SourceItem]
+    let opportunities: [Opportunity]
+    let sourceHealth: [SourceHealth]
+    let notifications: [NotificationRecord]
+    let sourceBlocklist: [SourceBlockRule]
+
+    init(
+        sourceItems: [SourceItem],
+        opportunities: [Opportunity] = [],
+        sourceHealth: [SourceHealth],
+        notifications: [NotificationRecord],
+        sourceBlocklist: [SourceBlockRule]
+    ) {
+        self.sourceItems = sourceItems
+        self.opportunities = opportunities
+        self.sourceHealth = sourceHealth
+        self.notifications = notifications
+        self.sourceBlocklist = sourceBlocklist
+    }
+}
+
 protocol ResearchSyncing: Sendable {
     func synchronize() async -> [SourceSyncResult]
     func synchronize(watchlist: [WatchlistEntry]) async -> [SourceSyncResult]
+    func synchronize(watchlist: [WatchlistEntry], seed: ResearchSyncSeed) async -> [SourceSyncResult]
     func researchTopic(_ query: String, watchlist: [WatchlistEntry]) async -> [SourceSyncResult]
 }
 
 extension ResearchSyncing {
     func synchronize(watchlist: [WatchlistEntry]) async -> [SourceSyncResult] {
         await synchronize()
+    }
+
+    func synchronize(watchlist: [WatchlistEntry], seed: ResearchSyncSeed) async -> [SourceSyncResult] {
+        await synchronize(watchlist: watchlist)
     }
 
     func researchTopic(_ query: String, watchlist: [WatchlistEntry]) async -> [SourceSyncResult] {
@@ -36,6 +65,212 @@ extension ResearchSyncing {
 struct WatchlistSyncResult: Sendable {
     let synchronizedEntries: [WatchlistEntry]
     let errorMessage: String?
+}
+
+struct ServerQuietHours: Codable, Equatable, Sendable {
+    let enabled: Bool
+    let start: String
+    let end: String
+}
+
+struct ServerPreferences: Codable, Equatable, Sendable {
+    let refreshMinutes: Int
+    let notificationsEnabled: Bool
+    let digestHour: Int
+    let quietHours: ServerQuietHours
+    let locale: String
+    let timeZone: String
+    let updatedAt: Date
+}
+
+struct ServerPreferencePatch: Codable, Equatable, Sendable {
+    var refreshMinutes: Int?
+    var notificationsEnabled: Bool?
+    var digestHour: Int?
+    var quietHours: ServerQuietHours?
+    var locale: String?
+    var timeZone: String?
+
+    init(
+        refreshMinutes: Int? = nil,
+        notificationsEnabled: Bool? = nil,
+        digestHour: Int? = nil,
+        quietHours: ServerQuietHours? = nil,
+        locale: String? = nil,
+        timeZone: String? = nil
+    ) {
+        self.refreshMinutes = refreshMinutes
+        self.notificationsEnabled = notificationsEnabled
+        self.digestHour = digestHour
+        self.quietHours = quietHours
+        self.locale = locale
+        self.timeZone = timeZone
+    }
+
+    var isEmpty: Bool {
+        refreshMinutes == nil
+            && notificationsEnabled == nil
+            && digestHour == nil
+            && quietHours == nil
+            && locale == nil
+            && timeZone == nil
+    }
+
+    func merging(_ other: ServerPreferencePatch) -> ServerPreferencePatch {
+        ServerPreferencePatch(
+            refreshMinutes: other.refreshMinutes ?? refreshMinutes,
+            notificationsEnabled: other.notificationsEnabled ?? notificationsEnabled,
+            digestHour: other.digestHour ?? digestHour,
+            quietHours: other.quietHours ?? quietHours,
+            locale: other.locale ?? locale,
+            timeZone: other.timeZone ?? timeZone
+        )
+    }
+
+    func removing(_ sent: ServerPreferencePatch) -> ServerPreferencePatch {
+        ServerPreferencePatch(
+            refreshMinutes: refreshMinutes == sent.refreshMinutes ? nil : refreshMinutes,
+            notificationsEnabled: notificationsEnabled == sent.notificationsEnabled ? nil : notificationsEnabled,
+            digestHour: digestHour == sent.digestHour ? nil : digestHour,
+            quietHours: quietHours == sent.quietHours ? nil : quietHours,
+            locale: locale == sent.locale ? nil : locale,
+            timeZone: timeZone == sent.timeZone ? nil : timeZone
+        )
+    }
+}
+
+struct PreferenceSyncResult: Sendable {
+    let preferences: ServerPreferences?
+    let etag: String?
+    let conflict: Bool
+    let errorMessage: String?
+}
+
+protocol PreferenceSyncing: Sendable {
+    func fetchCanonical() async -> PreferenceSyncResult
+    func update(
+        _ patch: ServerPreferencePatch,
+        ifMatch etag: String,
+        idempotencyKey: String
+    ) async -> PreferenceSyncResult
+}
+
+struct NoopPreferenceSync: PreferenceSyncing {
+    func fetchCanonical() async -> PreferenceSyncResult {
+        PreferenceSyncResult(preferences: nil, etag: nil, conflict: false, errorMessage: "Backend preference sync is not configured")
+    }
+
+    func update(
+        _ patch: ServerPreferencePatch,
+        ifMatch etag: String,
+        idempotencyKey: String
+    ) async -> PreferenceSyncResult {
+        PreferenceSyncResult(preferences: nil, etag: nil, conflict: false, errorMessage: patch.isEmpty ? nil : "Backend preference sync is not configured")
+    }
+}
+
+enum PreferenceSyncFactory {
+    static func production(environment: [String: String] = ProcessInfo.processInfo.environment)
+        -> any PreferenceSyncing {
+        guard let rawURL = environment["ZOID99_API_BASE_URL"] ?? environment["ZOID99_BACKEND_URL"],
+              let baseURL = URL(string: rawURL),
+              let apiToken = environment["ZOID99_API_TOKEN"],
+              apiToken.count >= 32 else {
+            return NoopPreferenceSync()
+        }
+        return BackendPreferenceSync(baseURL: baseURL, apiToken: apiToken)
+    }
+}
+
+struct BackendPreferenceSync: PreferenceSyncing {
+    let baseURL: URL
+    let apiToken: String
+    let transport: any HTTPTransport
+
+    init(baseURL: URL, apiToken: String, transport: any HTTPTransport = URLSessionHTTPTransport()) {
+        self.baseURL = baseURL
+        self.apiToken = apiToken
+        self.transport = transport
+    }
+
+    func fetchCanonical() async -> PreferenceSyncResult {
+        await request(method: "GET", body: nil, ifMatch: nil)
+    }
+
+    func update(
+        _ patch: ServerPreferencePatch,
+        ifMatch etag: String,
+        idempotencyKey: String
+    ) async -> PreferenceSyncResult {
+        guard !patch.isEmpty, let body = try? Self.encoder.encode(patch) else {
+            return PreferenceSyncResult(preferences: nil, etag: nil, conflict: false, errorMessage: "Backend preference sync failed")
+        }
+        return await request(method: "PATCH", body: body, ifMatch: etag, idempotencyKey: idempotencyKey)
+    }
+
+    private func request(
+        method: String,
+        body: Data?,
+        ifMatch: String?,
+        idempotencyKey: String? = nil
+    ) async -> PreferenceSyncResult {
+        do {
+            let response = try await transport.send(
+                HTTPRequest(
+                    url: baseURL.appendingPathComponent("v1/preferences"),
+                    method: method,
+                    headers: authorizedHeaders(ifMatch: ifMatch, idempotencyKey: idempotencyKey),
+                    body: body
+                )
+            )
+            let decoder = Self.decoder
+            if response.statusCode == 409 {
+                let conflict = try decoder.decode(PreferenceConflictResponse.self, from: response.body)
+                return PreferenceSyncResult(
+                    preferences: conflict.preferences,
+                    etag: response.header("ETag"),
+                    conflict: true,
+                    errorMessage: "Backend preference sync conflict"
+                )
+            }
+            guard response.statusCode == 200 else { throw BackendSyncError.httpStatus(response.statusCode) }
+            return PreferenceSyncResult(
+                preferences: try decoder.decode(ServerPreferences.self, from: response.body),
+                etag: response.header("ETag"),
+                conflict: false,
+                errorMessage: nil
+            )
+        } catch {
+            return PreferenceSyncResult(preferences: nil, etag: nil, conflict: false, errorMessage: "Backend preference sync failed")
+        }
+    }
+
+    private func authorizedHeaders(ifMatch: String?, idempotencyKey: String?) -> [String: String] {
+        var headers = [
+            "Accept": "application/json",
+            "Authorization": "Bearer \(apiToken)",
+            "Content-Type": "application/json"
+        ]
+        if let ifMatch { headers["If-Match"] = ifMatch }
+        headers["Idempotency-Key"] = idempotencyKey
+        return headers
+    }
+
+    private static let encoder: JSONEncoder = {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        return encoder
+    }()
+
+    private static let decoder: JSONDecoder = {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return decoder
+    }()
+}
+
+private struct PreferenceConflictResponse: Decodable {
+    let preferences: ServerPreferences
 }
 
 protocol WatchlistSyncing: Sendable {
@@ -66,7 +301,7 @@ enum WatchlistSyncFactory {
         -> any WatchlistSyncing {
         guard let rawURL = environment["ZOID99_API_BASE_URL"] ?? environment["ZOID99_BACKEND_URL"],
               let baseURL = URL(string: rawURL),
-              let apiToken = environment["ZOID99_API_TOKEN"] ?? ProductionResearchSync.keychainToken(),
+              let apiToken = environment["ZOID99_API_TOKEN"],
               apiToken.count >= 32 else {
             return NoopWatchlistSync()
         }
@@ -159,7 +394,7 @@ struct NoopOpportunityDispositionSync: OpportunityDispositionSyncing {
 enum OpportunityDispositionSyncFactory {
     static func production(environment: [String: String] = ProcessInfo.processInfo.environment)
         -> any OpportunityDispositionSyncing {
-        guard let rawURL = environment["ZOID99_BACKEND_URL"],
+        guard let rawURL = environment["ZOID99_API_BASE_URL"] ?? environment["ZOID99_BACKEND_URL"],
               let baseURL = URL(string: rawURL),
               let apiToken = environment["ZOID99_API_TOKEN"],
               apiToken.count >= 32 else {
@@ -204,16 +439,7 @@ struct BackendOpportunityDispositionSync: OpportunityDispositionSyncing {
                 acknowledged.insert(mutation.id)
                 states.append(state)
             }
-            let response = try await transport.send(
-                HTTPRequest(
-                    url: baseURL.appendingPathComponent("v1/opportunities"),
-                    headers: authorizedHeaders
-                )
-            )
-            guard response.statusCode == 200 else {
-                throw BackendSyncError.httpStatus(response.statusCode)
-            }
-            states.append(contentsOf: try Self.decoder.decode([RemoteDisposition].self, from: response.body).map(\.state))
+            states.append(contentsOf: try await fetchCanonicalStates())
             return DispositionSyncResult(
                 states: states,
                 acknowledgedMutationIDs: acknowledged,
@@ -226,6 +452,51 @@ struct BackendOpportunityDispositionSync: OpportunityDispositionSyncing {
                 errorMessage: "Backend disposition sync failed"
             )
         }
+    }
+
+    private func fetchCanonicalStates() async throws -> [OpportunityDispositionState] {
+        var cursor: String?
+        var previousCursor: String?
+        var remote: [RemoteDisposition] = []
+
+        for _ in 0..<100 {
+            var components = URLComponents(
+                url: baseURL.appendingPathComponent("v1/opportunities"),
+                resolvingAgainstBaseURL: false
+            )!
+            components.queryItems = [
+                URLQueryItem(name: "limit", value: "200"),
+                URLQueryItem(name: "sort", value: "newest")
+            ]
+            if let cursor { components.queryItems?.append(URLQueryItem(name: "cursor", value: cursor)) }
+            let response = try await transport.send(
+                HTTPRequest(url: components.url!, headers: authorizedHeaders)
+            )
+            if response.statusCode == 400, cursor == nil {
+                let legacyResponse = try await transport.send(
+                    HTTPRequest(
+                        url: baseURL.appendingPathComponent("v1/opportunities"),
+                        headers: authorizedHeaders
+                    )
+                )
+                guard legacyResponse.statusCode == 200 else {
+                    throw BackendSyncError.httpStatus(legacyResponse.statusCode)
+                }
+                return try Self.decoder.decode([RemoteDisposition].self, from: legacyResponse.body).map(\.state)
+            }
+            guard response.statusCode == 200 else {
+                throw BackendSyncError.httpStatus(response.statusCode)
+            }
+            let page = try Self.decoder.decodeReadPage(RemoteDisposition.self, from: response.body)
+            remote.append(contentsOf: page.items)
+            guard let nextCursor = page.nextCursor else { return remote.map(\.state) }
+            guard nextCursor != cursor, nextCursor != previousCursor else {
+                throw BackendSyncError.invalidResponse
+            }
+            previousCursor = cursor
+            cursor = nextCursor
+        }
+        throw BackendSyncError.invalidResponse
     }
 
     private var authorizedHeaders: [String: String] {
@@ -252,6 +523,18 @@ struct BackendOpportunityDispositionSync: OpportunityDispositionSyncing {
         decoder.dateDecodingStrategy = .iso8601
         return decoder
     }()
+}
+
+private struct PaginatedReadPage<Item: Decodable>: Decodable {
+    let items: [Item]
+    let nextCursor: String?
+}
+
+private extension JSONDecoder {
+    func decodeReadPage<Item: Decodable>(_ type: Item.Type, from data: Data) throws -> PaginatedReadPage<Item> {
+        if let page = try? decode(PaginatedReadPage<Item>.self, from: data) { return page }
+        return PaginatedReadPage(items: try decode([Item].self, from: data), nextCursor: nil)
+    }
 }
 
 private struct DispositionRequest: Encodable {
@@ -313,7 +596,7 @@ struct LocalResearchSync: ResearchSyncing {
             PublicFeedConnector(source: $0)
         },
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        credentialStore: any CredentialStoring = KeychainCredentialStore()
+        credentialStore: any CredentialStoring = InMemoryCredentialStore()
     ) {
         self.officialConnectors = officialConnectors
         self.environment = environment
@@ -453,29 +736,13 @@ struct ProductionResearchSync: ResearchSyncing {
         guard
             let rawURL = environment["ZOID99_API_BASE_URL"],
             let baseURL = URL(string: rawURL),
-            let token = environment["ZOID99_API_TOKEN"] ?? Self.keychainToken(),
+            let token = environment["ZOID99_API_TOKEN"],
             token.count >= 32
         else {
             backend = nil
             return
         }
         backend = BackendResearchSync(baseURL: baseURL, token: token)
-    }
-
-    static func keychainToken() -> String? {
-        let query: [CFString: Any] = [
-            kSecClass: kSecClassGenericPassword,
-            kSecAttrService: "Zoid99Backend",
-            kSecAttrAccount: "api-token",
-            kSecReturnData: true,
-            kSecMatchLimit: kSecMatchLimitOne,
-        ]
-        var result: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
-              let data = result as? Data else {
-            return nil
-        }
-        return String(data: data, encoding: .utf8)
     }
 
     func synchronize() async -> [SourceSyncResult] {
@@ -490,6 +757,17 @@ struct ProductionResearchSync: ResearchSyncing {
                 for: watchlist,
                 environment: environment
             )
+        )
+    }
+
+    func synchronize(watchlist: [WatchlistEntry], seed: ResearchSyncSeed) async -> [SourceSyncResult] {
+        guard let backend else { return await local.synchronize(watchlist: watchlist) }
+        return await backend.synchronize(
+            additionalConnectors: WatchlistConnectorFactory.connectors(
+                for: watchlist,
+                environment: environment
+            ),
+            seed: seed
         )
     }
 }
