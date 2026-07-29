@@ -168,26 +168,45 @@ final class IngestionSynchronizationAcceptanceTests: XCTestCase {
     }
 
     func testExistingBackendOpportunityReceivesNativeNotificationHistory() async throws {
-        let item = SourceItem(
+        let remoteItem = SourceItem(
             id: UUID(uuidString: "10000000-0000-4000-8000-000000000077")!,
             group: .official,
-            externalID: "native-notification-77",
+            externalID: "server-notification-77",
             title: "Native notification release",
             summary: "Existing native notification history should become available to the web client.",
             author: "Official publisher",
-            url: URL(string: "https://official.example/releases/77")!,
+            url: URL(string: "https://server.example/releases/77")!,
             publishedAt: Date(timeIntervalSince1970: 1_784_708_800),
             collectedAt: Date(timeIntervalSince1970: 1_784_709_100),
             language: "en",
             country: "US",
-            topicKey: "native-notification-77",
+            topicKey: "server-notification-77",
             isOriginalSource: true,
             credibility: 1,
             engagement: 0,
             verification: .confirmed,
             dataTruth: .cached
         )
-        let serverOpportunity = ResearchPipeline().run(items: [item], now: item.collectedAt).opportunities[0]
+        let item = SourceItem(
+            id: UUID(uuidString: "10000000-0000-4000-8000-000000000078")!,
+            group: .official,
+            externalID: "native-notification-77",
+            title: remoteItem.title,
+            summary: remoteItem.summary,
+            author: remoteItem.author,
+            url: URL(string: "https://native.example/releases/77")!,
+            publishedAt: remoteItem.publishedAt,
+            collectedAt: remoteItem.collectedAt,
+            language: remoteItem.language,
+            country: remoteItem.country,
+            topicKey: "native-notification-77",
+            isOriginalSource: true,
+            credibility: remoteItem.credibility,
+            engagement: remoteItem.engagement,
+            verification: remoteItem.verification,
+            dataTruth: .cached
+        )
+        let serverOpportunity = ResearchPipeline().run(items: [remoteItem], now: remoteItem.collectedAt).opportunities[0]
         let opportunity = Opportunity(
             id: serverOpportunity.id,
             topicKey: "native-client-topic-77",
@@ -210,7 +229,7 @@ final class IngestionSynchronizationAcceptanceTests: XCTestCase {
             createdAt: item.collectedAt,
             isRead: false
         )
-        let recorder = RequestRecorder(item: item)
+        let recorder = RequestRecorder(item: remoteItem)
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [AcceptanceURLProtocol.self]
         AcceptanceURLProtocol.recorder = recorder

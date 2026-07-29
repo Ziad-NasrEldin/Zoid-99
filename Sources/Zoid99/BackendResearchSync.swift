@@ -73,7 +73,14 @@ actor BackendResearchSync {
                     uniqueKeysWithValues: canonicalBootstrap.opportunities.map { ($0.topicKey, $0) }
                 )
                 var remoteOpportunitiesBySourceURL: [URL: APIOpportunity] = [:]
+                var remoteOpportunitiesByTitle: [String: APIOpportunity] = [:]
                 for remoteOpportunity in canonicalBootstrap.opportunities {
+                    let normalizedTitle = remoteOpportunity.title
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                        .lowercased()
+                    if remoteOpportunitiesByTitle[normalizedTitle] == nil {
+                        remoteOpportunitiesByTitle[normalizedTitle] = remoteOpportunity
+                    }
                     for item in remoteOpportunity.items where remoteOpportunitiesBySourceURL[item.url] == nil {
                         remoteOpportunitiesBySourceURL[item.url] = remoteOpportunity
                     }
@@ -85,8 +92,12 @@ actor BackendResearchSync {
                     uniqueKeysWithValues: seed.notifications.map { ($0.opportunityID, $0) }
                 )
                 let seedOpportunitiesToSync = seed.opportunities.compactMap { opportunity -> Opportunity? in
+                    let normalizedTitle = opportunity.title
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                        .lowercased()
                     let matchingRemote = remoteOpportunitiesByTopic[opportunity.topicKey]
                         ?? opportunity.items.compactMap { remoteOpportunitiesBySourceURL[$0.url] }.first
+                        ?? remoteOpportunitiesByTitle[normalizedTitle]
                     if let matchingRemote {
                         guard seedNotificationsByOpportunityID[opportunity.id] != nil,
                               !remoteNotificationOpportunityIDs.contains(matchingRemote.id) else {
