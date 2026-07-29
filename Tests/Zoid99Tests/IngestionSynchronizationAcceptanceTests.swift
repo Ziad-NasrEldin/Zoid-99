@@ -187,7 +187,21 @@ final class IngestionSynchronizationAcceptanceTests: XCTestCase {
             verification: .confirmed,
             dataTruth: .cached
         )
-        let opportunity = ResearchPipeline().run(items: [item], now: item.collectedAt).opportunities[0]
+        let serverOpportunity = ResearchPipeline().run(items: [item], now: item.collectedAt).opportunities[0]
+        let opportunity = Opportunity(
+            id: serverOpportunity.id,
+            topicKey: "native-client-topic-77",
+            title: serverOpportunity.title,
+            brief: serverOpportunity.brief,
+            verification: serverOpportunity.verification,
+            earliestPublishedAt: serverOpportunity.earliestPublishedAt,
+            originalSource: serverOpportunity.originalSource,
+            items: serverOpportunity.items,
+            score: serverOpportunity.score,
+            regionalExplanation: serverOpportunity.regionalExplanation,
+            coverageExplanation: serverOpportunity.coverageExplanation,
+            disposition: serverOpportunity.disposition
+        )
         let notification = NotificationRecord(
             id: UUID(uuidString: "30000000-0000-4000-8000-000000000077")!,
             opportunityID: opportunity.id,
@@ -222,6 +236,7 @@ final class IngestionSynchronizationAcceptanceTests: XCTestCase {
         let ingestion = try await recorder.ingestionJSON()
         let batches = try XCTUnwrap(ingestion["batches"] as? [[String: Any]])
         let uploadedNotification = try XCTUnwrap(batches.first?["notification"] as? [String: Any])
+        XCTAssertEqual(batches.first?["clusterKey"] as? String, serverOpportunity.topicKey)
         XCTAssertEqual(uploadedNotification["title"] as? String, notification.title)
         XCTAssertEqual(uploadedNotification["delivery"] as? String, "Immediate")
         XCTAssertEqual(uploadedNotification["isRead"] as? Bool, false)

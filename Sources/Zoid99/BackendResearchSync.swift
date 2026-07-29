@@ -72,21 +72,44 @@ actor BackendResearchSync {
                 let remoteOpportunitiesByTopic = Dictionary(
                     uniqueKeysWithValues: canonicalBootstrap.opportunities.map { ($0.topicKey, $0) }
                 )
+                var remoteOpportunitiesBySourceURL: [URL: APIOpportunity] = [:]
+                for remoteOpportunity in canonicalBootstrap.opportunities {
+                    for item in remoteOpportunity.items where remoteOpportunitiesBySourceURL[item.url] == nil {
+                        remoteOpportunitiesBySourceURL[item.url] = remoteOpportunity
+                    }
+                }
                 let remoteNotificationOpportunityIDs = Set(
                     canonicalBootstrap.notifications.map(\.opportunityID)
                 )
                 let seedNotificationsByOpportunityID = Dictionary(
                     uniqueKeysWithValues: seed.notifications.map { ($0.opportunityID, $0) }
                 )
-                let seedOpportunitiesToSync = seed.opportunities.filter { opportunity in
-                    if missingTopicKeys.contains(opportunity.topicKey) {
-                        return true
+                let seedOpportunitiesToSync = seed.opportunities.compactMap { opportunity -> Opportunity? in
+                    let matchingRemote = remoteOpportunitiesByTopic[opportunity.topicKey]
+                        ?? opportunity.items.compactMap { remoteOpportunitiesBySourceURL[$0.url] }.first
+                    if let matchingRemote {
+                        guard seedNotificationsByOpportunityID[opportunity.id] != nil,
+                              !remoteNotificationOpportunityIDs.contains(matchingRemote.id) else {
+                            return nil
+                        }
+                        return Opportunity(
+                            id: opportunity.id,
+                            topicKey: matchingRemote.topicKey,
+                            title: opportunity.title,
+                            brief: opportunity.brief,
+                            verification: opportunity.verification,
+                            earliestPublishedAt: opportunity.earliestPublishedAt,
+                            originalSource: opportunity.originalSource,
+                            items: opportunity.items,
+                            score: opportunity.score,
+                            regionalExplanation: opportunity.regionalExplanation,
+                            coverageExplanation: opportunity.coverageExplanation,
+                            disposition: opportunity.disposition,
+                            dispositionUpdatedAt: opportunity.dispositionUpdatedAt,
+                            dispositionMutationID: opportunity.dispositionMutationID
+                        )
                     }
-                    guard seedNotificationsByOpportunityID[opportunity.id] != nil,
-                          let remoteOpportunity = remoteOpportunitiesByTopic[opportunity.topicKey] else {
-                        return false
-                    }
-                    return !remoteNotificationOpportunityIDs.contains(remoteOpportunity.id)
+                    return missingTopicKeys.contains(opportunity.topicKey) ? opportunity : nil
                 }
                 guard !itemsToImport.isEmpty || !seedOpportunitiesToSync.isEmpty else {
                     return results(from: canonicalBootstrap)
