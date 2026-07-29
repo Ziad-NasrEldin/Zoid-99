@@ -53,11 +53,6 @@ final class DiscordNotificationTests: XCTestCase {
         XCTAssertFalse(try store.containsWebhook())
     }
 
-    func testKeychainBoundaryUsesStableDedicatedIdentifiers() {
-        XCTAssertEqual(KeychainDiscordWebhookStore.service, "com.ziadnasreldin.zoid99.discord")
-        XCTAssertEqual(KeychainDiscordWebhookStore.account, "notification-webhook")
-    }
-
     func testFormattingIncludesRequiredResearchFieldsAndOnlySafeHTTPSLink() {
         let message = DiscordOpportunityMessage.format(opportunity())
         let unsafeMessage = DiscordOpportunityMessage.format(

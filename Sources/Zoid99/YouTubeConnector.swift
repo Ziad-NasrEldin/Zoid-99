@@ -1,5 +1,4 @@
 import Foundation
-import Security
 
 enum YouTubeCredential: Equatable, Sendable {
     case apiKey(String)
@@ -22,8 +21,8 @@ struct StaticYouTubeCredentialProvider: YouTubeCredentialProviding {
     }
 }
 
-struct KeychainYouTubeCredentialProvider: YouTubeCredentialProviding {
-    static let service = "com.zoid99.youtube-data-api"
+struct UserDefaultsYouTubeCredentialProvider: YouTubeCredentialProviding {
+    static let prefix = "com.zoid99.youtube-data-api"
 
     let account: String
     let kind: CredentialKind
@@ -34,22 +33,10 @@ struct KeychainYouTubeCredentialProvider: YouTubeCredentialProviding {
     }
 
     func credential() async -> YouTubeCredential? {
-        var query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Self.service,
-            kSecAttrAccount as String: "\(account).\(kind.rawValue)",
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
-        ]
-        var result: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
-              let data = result as? Data,
-              let value = String(data: data, encoding: .utf8),
-              !value.isEmpty else {
-            query.removeAll(keepingCapacity: false)
+        let key = "\(Self.prefix).\(account).\(kind.rawValue)"
+        guard let value = UserDefaults.standard.string(forKey: key), !value.isEmpty else {
             return nil
         }
-        query.removeAll(keepingCapacity: false)
         switch kind {
         case .apiKey:
             return .apiKey(value)

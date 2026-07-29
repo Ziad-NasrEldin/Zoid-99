@@ -8,8 +8,7 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "Zoid99",
-            path: "Sources/Zoid99",
-            linkerSettings: [.linkedFramework("Security")]
+            path: "Sources/Zoid99"
         ),
         .testTarget(
             name: "Zoid99Tests",

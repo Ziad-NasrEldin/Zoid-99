@@ -226,6 +226,161 @@ final class ResearchControlsTests: XCTestCase {
         XCTAssertTrue(result.evidence.contains { $0.id == xItem.id && $0.url == xItem.url })
     }
 
+    func testSourceBlocklistNormalizesDomainsAndRejectsInvalidInput() {
+        XCTAssertEqual(
+            SourceDomainNormalizer.normalizedDomain(from: "https://arxiv.org/abs/2607.24692v1"),
+            "arxiv.org"
+        )
+        XCTAssertEqual(SourceDomainNormalizer.normalizedDomain(from: "www.ARXIV.org/foo"), "arxiv.org")
+        XCTAssertNil(SourceDomainNormalizer.normalizedDomain(from: "not a domain"))
+    }
+
+    @MainActor
+    func testSeededArxivBlocklistPrunesCachedItemsAndOpportunities() {
+        let blockedOnly = sourceItem(
+            externalID: "arxiv-only",
+            title: "arXiv only release",
+            url: "https://arxiv.org/abs/2607.24692v1",
+            topicKey: "blocked-only"
+        )
+        let mixedBlocked = sourceItem(
+            externalID: "arxiv-mixed",
+            title: "Mixed release",
+            url: "https://arxiv.org/abs/2607.24693v1",
+            topicKey: "mixed-topic",
+            publishedAt: ResearchFixtures.now.addingTimeInterval(-3_600)
+        )
+        let mixedAllowed = sourceItem(
+            externalID: "allowed-mixed",
+            title: "Mixed release",
+            url: "https://openai.com/news/mixed",
+            topicKey: "mixed-topic",
+            publishedAt: ResearchFixtures.now.addingTimeInterval(-1_800)
+        )
+        let output = ResearchPipeline().run(
+            items: [blockedOnly, mixedBlocked, mixedAllowed],
+            now: ResearchFixtures.now
+        )
+        var state = ResearchState.empty
+        state.sourceItems = output.normalizedItems
+        state.opportunities = output.opportunities
+        state.notificationHistory = output.notifications
+        state.sourceHealth = [
+            SourceHealth(
+                group: .official,
+                state: .connected,
+                lastActivity: ResearchFixtures.now,
+                evidence: "30 published items mapped from arXiv Computer Science - Artificial Intelligence.",
+                repairAction: "Review",
+                dataTruth: .cached
+            )
+        ]
+
+        let store = AppStore(
+            persistence: ControlsPersistence(state: state),
+            watchlistSync: ControlsWatchlistSync(),
+            now: { ResearchFixtures.now },
+            loadDemoDataWhenEmpty: false
+        )
+
+        XCTAssertTrue(store.sourceBlocklist.contains { $0.domain == "arxiv.org" })
+        XCTAssertFalse(store.topicResearch(query: "arXiv only release").evidence.contains { $0.url.host == "arxiv.org" })
+        XCTAssertFalse(store.opportunities.contains { $0.topicKey == "blocked-only" })
+        let mixed = try! XCTUnwrap(store.opportunities.first { $0.topicKey == "mixed-topic" })
+        XCTAssertEqual(mixed.items.map(\.url.host), ["openai.com"])
+        XCTAssertFalse(store.notifications.contains { notification in
+            !store.opportunities.contains { $0.id == notification.opportunityID }
+        })
+        XCTAssertFalse(store.sourceHealth.contains { $0.evidence.localizedCaseInsensitiveContains("arxiv") })
+    }
+
+    @MainActor
+    func testAddingBlockedDomainPrunesCurrentStateRejectsDuplicatesAndPersistsAcrossRestart() {
+        let blocked = sourceItem(
+            externalID: "example-blocked",
+            title: "Example blocked",
+            url: "https://example.net/research",
+            topicKey: "example-topic"
+        )
+        let allowed = sourceItem(
+            externalID: "allowed",
+            title: "Allowed research",
+            url: "https://openai.com/news/allowed",
+            topicKey: "allowed-topic"
+        )
+        let output = ResearchPipeline().run(items: [blocked, allowed], now: ResearchFixtures.now)
+        var state = ResearchState.empty
+        state.sourceItems = output.normalizedItems
+        state.opportunities = output.opportunities
+        let persistence = ControlsPersistence(state: state)
+        let store = AppStore(
+            persistence: persistence,
+            watchlistSync: ControlsWatchlistSync(),
+            now: { ResearchFixtures.now },
+            loadDemoDataWhenEmpty: false
+        )
+
+        XCTAssertTrue(store.blockSourceDomain("https://example.net/research"))
+        XCTAssertFalse(store.opportunities.contains { $0.topicKey == "example-topic" })
+        XCTAssertFalse(store.blockSourceDomain("www.example.net/other"))
+        XCTAssertEqual(store.sourceBlocklistError, SourceBlocklistValidationError.duplicate.localizedDescription)
+
+        let restarted = AppStore(
+            persistence: persistence,
+            watchlistSync: ControlsWatchlistSync(),
+            loadDemoDataWhenEmpty: false
+        )
+        XCTAssertTrue(restarted.sourceBlocklist.contains { $0.domain == "example.net" })
+        XCTAssertFalse(restarted.opportunities.contains { $0.topicKey == "example-topic" })
+        XCTAssertTrue(restarted.opportunities.contains { $0.topicKey == "allowed-topic" })
+    }
+
+    @MainActor
+    func testRefreshFiltersBlockedSourcesBeforeDisplay() async {
+        let blocked = sourceItem(
+            externalID: "blocked-live",
+            title: "Blocked live",
+            url: "https://example.net/live",
+            topicKey: "blocked-live"
+        )
+        let allowed = sourceItem(
+            externalID: "allowed-live",
+            title: "Allowed live",
+            url: "https://openai.com/news/live",
+            topicKey: "allowed-live"
+        )
+        let sync = ControlsResearchSync(
+            topicResults: [],
+            synchronizeResults: [
+                SourceSyncResult(
+                    group: .official,
+                    collectedAt: ResearchFixtures.now,
+                    items: [blocked, allowed],
+                    state: .connected,
+                    dataTruth: .live,
+                    evidence: "Live official test evidence."
+                )
+            ]
+        )
+        let store = AppStore(
+            persistence: ControlsPersistence(state: .empty),
+            sync: sync,
+            watchlistSync: ControlsWatchlistSync(),
+            loadDemoDataWhenEmpty: false
+        )
+        XCTAssertTrue(store.blockSourceDomain("example.net"))
+
+        await store.refresh()
+
+        XCTAssertFalse(store.opportunities.contains { $0.topicKey == "blocked-live" })
+        XCTAssertTrue(store.opportunities.contains { $0.topicKey == "allowed-live" })
+        XCTAssertEqual(store.topicResearch(query: "Blocked live").state, .noMatches)
+        XCTAssertFalse(store.sourceHealth.contains {
+            $0.evidence.localizedCaseInsensitiveContains("example.net")
+                || $0.evidence.localizedCaseInsensitiveContains("Blocked live")
+        })
+    }
+
     func testBackendWatchlistSyncPullsCanonicalBeforeAtomicReplacement() async throws {
         let entry = WatchlistEntry(
             id: UUID(),
@@ -303,6 +458,34 @@ final class ResearchControlsTests: XCTestCase {
         }
         return state
     }
+
+    private func sourceItem(
+        externalID: String,
+        title: String,
+        url: String,
+        topicKey: String,
+        publishedAt: Date = ResearchFixtures.now.addingTimeInterval(-7_200)
+    ) -> SourceItem {
+        SourceItem(
+            id: UUID(),
+            group: .official,
+            externalID: externalID,
+            title: title,
+            summary: "\(title) summary.",
+            author: "Official",
+            url: URL(string: url)!,
+            publishedAt: publishedAt,
+            collectedAt: ResearchFixtures.now,
+            language: "en",
+            country: "US",
+            topicKey: topicKey,
+            isOriginalSource: true,
+            credibility: 0.95,
+            engagement: 100,
+            verification: .confirmed,
+            dataTruth: .cached
+        )
+    }
 }
 
 private final class ControlsPersistence: ResearchPersistence, @unchecked Sendable {
@@ -341,16 +524,18 @@ private final class ControlsResearchSync: ResearchSyncing, @unchecked Sendable {
     private(set) var watchlists: [[WatchlistEntry]] = []
     private(set) var topics: [String] = []
     private let topicResults: [SourceSyncResult]
+    private let synchronizeResults: [SourceSyncResult]
 
-    init(topicResults: [SourceSyncResult] = []) {
+    init(topicResults: [SourceSyncResult] = [], synchronizeResults: [SourceSyncResult] = []) {
         self.topicResults = topicResults
+        self.synchronizeResults = synchronizeResults
     }
 
-    func synchronize() async -> [SourceSyncResult] { [] }
+    func synchronize() async -> [SourceSyncResult] { synchronizeResults }
 
     func synchronize(watchlist: [WatchlistEntry]) async -> [SourceSyncResult] {
         watchlists.append(watchlist)
-        return []
+        return synchronizeResults
     }
 
     func researchTopic(_ query: String, watchlist: [WatchlistEntry]) async -> [SourceSyncResult] {

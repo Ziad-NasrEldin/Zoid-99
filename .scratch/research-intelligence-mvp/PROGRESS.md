@@ -9,7 +9,7 @@ Updated: 2026-07-24
 Zoid 99 is a private, single-user macOS application.
 It must not have app login, signup, account creation, team accounts, or an app-account system.
 OAuth and connection screens exist only to authorize external providers such as YouTube, Meta, X, or another supported research provider.
-Provider credentials must use macOS Keychain or encrypted server configuration as appropriate.
+Provider credentials must use local app preferences or encrypted server configuration as appropriate.
 
 ## Evidence standard
 
@@ -82,7 +82,7 @@ Conflicting changes that removed X, reduced six sources to five, made the backen
 | 28. Show source-connection health | integrated | The native ledger now composes real sync truth with written provider state, retained evidence, and one repair action; credentialed provider proof remains. |
 | 29. Configure notification and refresh preferences | integrated | Persisted opt-in, permission truth, quiet hours, digest time, and refresh preferences are integrated and native-proofed. |
 | 30. Monitor while the Mac sleeps | external | The backend scheduler reads the persisted Watchlist and runs fixed and user-selected official/provider collection independently of the Mac app; health, readiness, backup/restore, deployment, rollback, and monitoring paths are implemented, while a real reachable production host and authorized sleep/wake pilot are still required. |
-| 31. Store credentials securely | integrated | Keychain and encrypted-server boundaries, validation-before-storage, removal, redacted logs, and encryption-key rotation are deterministic-tested; no live provider credential is claimed. |
+| 31. Store credentials securely | integrated | Local preference and encrypted-server boundaries, validation-before-storage, removal, redacted logs, and encryption-key rotation are deterministic-tested; no live provider credential is claimed. |
 | 32. Retain source links in every Research Brief | integrated | Citation enforcement and evaluation coverage are integrated with retained source links. |
 | 33. Use a calm ledger interface | integrated | Main SwiftUI shell implements the Sumi-Ink ledger direction at `5aba082`; final visual acceptance remains human-reviewed. |
 | 34. Pair important states with written labels | integrated | Main includes written state labels and deterministic coverage at `5aba082`. |
@@ -112,5 +112,5 @@ The final packaged application launched successfully.
 
 1. Provide approved YouTube, owned YouTube OAuth/comments, Google Trends alpha, X, Instagram/Meta, AI, and production-backend credentials for opt-in live validation.
 2. Authorize a production host and PostgreSQL target, then run real deploy, rollback, monitoring, and Mac sleep/wake proof against its reachable URL.
-3. Provide a Developer ID Application identity and notary Keychain profile, install the signed build, accept notification permission, and validate the notification deep link.
+3. Provide a Developer ID Application identity and App Store Connect API key, install the signed build, accept notification permission, and validate the notification deep link.
 4. Run the credentialed multi-day pilot in issue 012 before calling the MVP live.

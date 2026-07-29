@@ -1,0 +1,341 @@
+.layout {
+  display: grid;
+  gap: 28px;
+}
+
+.section {
+  border: 1px solid var(--rule-strong, #b7b1a7);
+  background: var(--paper, #f7f4ed);
+}
+
+.sectionHeading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 22px 24px;
+  border-bottom: 1px solid var(--rule, #d9d3c9);
+}
+
+.sectionHeading h2 {
+  margin: 4px 0 0;
+  font-family: "Times New Roman", Baskerville, Georgia, serif;
+  font-size: 30px;
+  font-weight: 400;
+}
+
+.sectionHeading > p {
+  max-width: 420px;
+  margin: 0;
+  color: var(--muted, #6e6a62);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.reauthBoundary {
+  margin: 18px 24px 0;
+  padding: 14px 16px;
+  border-left: 3px solid var(--accent, #9f2f2f);
+  background: var(--paper-warm, #eee8dc);
+}
+
+.reauthBoundary strong {
+  display: block;
+  font-size: 13px;
+}
+
+.reauthBoundary p {
+  margin: 6px 0 0;
+  color: var(--muted, #6e6a62);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.connectionList {
+  display: grid;
+  gap: 18px;
+  padding: 24px;
+}
+
+.connectionCard {
+  border: 1px solid var(--rule, #d9d3c9);
+}
+
+.connectionHeader {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px;
+  border-bottom: 1px solid var(--rule, #d9d3c9);
+}
+
+.connectionHeader h3 {
+  margin: 4px 0 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.connectionState {
+  padding: 5px 8px;
+  border: 1px solid currentColor;
+  color: var(--muted, #6e6a62);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.details {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr;
+  gap: 18px;
+  margin: 0;
+  padding: 18px;
+}
+
+.details dt {
+  color: var(--muted, #6e6a62);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.details dd {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.actionArea {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(220px, 0.75fr);
+  gap: 18px;
+  padding: 18px;
+  border-top: 1px solid var(--rule, #d9d3c9);
+}
+
+.configureForm,
+.secondaryActions {
+  display: grid;
+  align-content: start;
+  gap: 9px;
+}
+
+.configureForm label,
+.preferenceGrid label,
+.timeGrid label {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.configureForm input,
+.preferenceForm select,
+.preferenceForm input[type="time"] {
+  min-height: 42px;
+  border: 1px solid var(--rule-strong, #b7b1a7);
+  border-radius: 0;
+  background: var(--paper, #f7f4ed);
+  color: var(--ink, #1c1b19);
+  padding: 9px 10px;
+  font: inherit;
+}
+
+.configureForm input:focus-visible,
+.preferenceForm select:focus-visible,
+.preferenceForm input:focus-visible,
+.configureForm button:focus-visible,
+.secondaryActions button:focus-visible,
+.preferenceFooter button:focus-visible,
+.conflictBox button:focus-visible {
+  outline: 2px solid var(--accent, #9f2f2f);
+  outline-offset: 3px;
+}
+
+.configureForm button,
+.secondaryActions button,
+.preferenceFooter button,
+.conflictBox button {
+  min-height: 44px;
+  border: 1px solid var(--ink, #1c1b19);
+  border-radius: 0;
+  background: var(--ink, #1c1b19);
+  color: var(--paper, #f7f4ed);
+  padding: 9px 12px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.configureForm button:disabled,
+.secondaryActions button:disabled,
+.preferenceFooter button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.secondaryActions {
+  grid-template-columns: 1fr;
+}
+
+.secondaryActions form {
+  display: grid;
+}
+
+.secondaryActions button {
+  background: transparent;
+  color: var(--ink, #1c1b19);
+}
+
+.secondaryActions .dangerButton {
+  border-color: var(--accent, #9f2f2f);
+  color: var(--accent, #9f2f2f);
+}
+
+.helpText,
+.etagNote {
+  margin: 0;
+  color: var(--muted, #6e6a62);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.success,
+.error,
+.successBox,
+.errorBox,
+.conflictBox {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.success,
+.successBox { color: var(--healthy, #2f3a2f); }
+.error,
+.errorBox,
+.conflictBox { color: var(--accent, #9f2f2f); }
+
+.preferenceForm {
+  display: grid;
+  gap: 22px;
+  padding: 24px;
+}
+
+.preferenceGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.fieldset {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 16px;
+  border: 1px solid var(--rule, #d9d3c9);
+}
+
+.fieldset legend {
+  padding: 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.checkboxLabel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  font-size: 13px;
+}
+
+.checkboxLabel input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--ink, #1c1b19);
+}
+
+.timeGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.preferenceFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.successBox,
+.errorBox,
+.conflictBox {
+  padding: 14px 16px;
+  border: 1px solid currentColor;
+}
+
+.successBox p,
+.errorBox p,
+.conflictBox p {
+  margin: 5px 0 0;
+}
+
+.conflictBox button {
+  margin-top: 12px;
+  background: transparent;
+  color: currentColor;
+}
+
+.empty {
+  margin: 0;
+  color: var(--muted, #6e6a62);
+}
+
+@media (max-width: 900px) {
+  .details,
+  .preferenceGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .actionArea {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 620px) {
+  .sectionHeading,
+  .connectionHeader,
+  .preferenceFooter {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .sectionHeading,
+  .connectionList,
+  .preferenceForm {
+    padding: 18px;
+  }
+
+  .details,
+  .preferenceGrid,
+  .timeGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .connectionHeader,
+  .details,
+  .actionArea {
+    padding: 16px;
+  }
+
+  .configureForm button,
+  .secondaryActions button,
+  .preferenceFooter button {
+    width: 100%;
+  }
+}
+

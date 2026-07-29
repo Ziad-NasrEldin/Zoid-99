@@ -6,16 +6,16 @@ import XCTest
 final class ConnectionWorkflowTests: XCTestCase {
     func testCatalogHasTruthfulCredentialBoundariesAndNoAppAccountProvider() {
         XCTAssertEqual(Set(ProviderDefinition.catalog.map(\.provider)), Set(ExternalProvider.allCases))
-        XCTAssertEqual(definition(.youtube).credentialBoundary, .keychain)
-        XCTAssertEqual(definition(.meta).credentialBoundary, .keychain)
-        XCTAssertEqual(definition(.x).credentialBoundary, .keychain)
+        XCTAssertEqual(definition(.youtube).credentialBoundary, .inMemorySession)
+        XCTAssertEqual(definition(.meta).credentialBoundary, .inMemorySession)
+        XCTAssertEqual(definition(.x).credentialBoundary, .inMemorySession)
         XCTAssertEqual(definition(.googleTrends).credentialBoundary, .serverSecret)
         XCTAssertEqual(definition(.aiProvider).credentialBoundary, .serverSecret)
         XCTAssertEqual(definition(.officialFeeds).credentialBoundary, .none)
         XCTAssertFalse(ProviderDefinition.catalog.map(\.setupGuidance).joined().localizedCaseInsensitiveContains("Zoid 99 account"))
     }
 
-    func testKeychainBoundaryNeverStoresCredentialWithoutProviderVerification() async {
+    func testInMemoryBoundaryNeverStoresCredentialWithoutProviderVerification() async {
         let credentials = MemoryCredentialStore()
         let service = LocalProviderConnectionService(
             credentials: credentials,

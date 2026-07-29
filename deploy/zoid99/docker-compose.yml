@@ -1,0 +1,120 @@
+services:
+  postgres:
+    image: postgres:17.5-alpine
+    env_file: .env.production
+    command:
+      - postgres
+      - -c
+      - ssl=on
+      - -c
+      - ssl_cert_file=/var/lib/postgresql/certs/server.crt
+      - -c
+      - ssl_key_file=/var/lib/postgresql/certs/server.key
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./secrets/postgres:/var/lib/postgresql/certs:ro
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+      - /var/run/postgresql:size=4m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks:
+      private:
+        aliases:
+          - zoid99-postgres
+
+  migrate:
+    build:
+      context: ../..
+      dockerfile: backend/Dockerfile
+    env_file: .env.production
+    command: ["node", "dist/src/migrate.js"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    networks: [private]
+
+  api:
+    build:
+      context: ../..
+      dockerfile: backend/Dockerfile
+    env_file: .env.production
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8099/ready"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks: [private, proxy]
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=coolify
+      - traefik.http.routers.zoid99-api.rule=Host(`zoid99.mavoid.com`) && (PathPrefix(`/v1`) || PathPrefix(`/health`) || PathPrefix(`/ready`))
+      - traefik.http.routers.zoid99-api.entrypoints=https
+      - traefik.http.routers.zoid99-api.tls=true
+      - traefik.http.routers.zoid99-api.tls.certresolver=letsencrypt
+      - traefik.http.routers.zoid99-api.priority=100
+      - traefik.http.services.zoid99-api.loadbalancer.server.port=8099
+
+  web:
+    build:
+      context: ../..
+      dockerfile: web/Dockerfile
+    env_file: .env.production
+    environment:
+      NODE_ENV: production
+      PORT: 3100
+    extra_hosts:
+      - zoid99.mavoid.com:host-gateway
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    networks: [private, proxy]
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=coolify
+      - traefik.http.routers.zoid99-web.rule=Host(`zoid99.mavoid.com`)
+      - traefik.http.routers.zoid99-web.entrypoints=https
+      - traefik.http.routers.zoid99-web.tls=true
+      - traefik.http.routers.zoid99-web.tls.certresolver=letsencrypt
+      - traefik.http.services.zoid99-web.loadbalancer.server.port=3100
+      - traefik.http.routers.zoid99-http.rule=Host(`zoid99.mavoid.com`)
+      - traefik.http.routers.zoid99-http.entrypoints=http
+      - traefik.http.routers.zoid99-http.middlewares=zoid99-https
+      - traefik.http.middlewares.zoid99-https.redirectscheme.scheme=https
+
+networks:
+  private:
+    internal: true
+  proxy:
+    external: true
+    name: coolify
+
+volumes:
+  postgres-data:

@@ -1,5 +1,4 @@
 import Foundation
-import Security
 
 enum ExternalProvider: String, CaseIterable, Codable, Identifiable, Sendable {
     case youtube = "YouTube"
@@ -40,9 +39,12 @@ enum ProviderConnectionState: String, CaseIterable, Codable, Sendable {
 }
 
 enum CredentialBoundary: String, Codable, Sendable {
-    case keychain = "macOS Keychain"
+    case inMemorySession = "In-memory session"
     case serverSecret = "Monitoring server secret"
     case none = "No credential required"
+
+    // Compatibility for existing UI call sites. Credentials are not stored in preferences.
+    static let localPreferences: Self = .inMemorySession
 }
 
 struct ProviderDefinition: Identifiable, Hashable, Sendable {
@@ -59,8 +61,8 @@ struct ProviderDefinition: Identifiable, Hashable, Sendable {
             provider: .youtube,
             prerequisite: "A YouTube Data API v3 key from a Google Cloud project.",
             permissionScope: "Read public channel data, videos, and comments. Zoid 99 cannot publish or reply.",
-            credentialBoundary: .keychain,
-            setupGuidance: "Paste a YouTube Data API key. It is validated once and stays in macOS Keychain."
+            credentialBoundary: .inMemorySession,
+            setupGuidance: "Paste a YouTube Data API key. It is validated once and stays only in this live session."
         ),
         ProviderDefinition(
             provider: .googleTrends,
@@ -73,15 +75,15 @@ struct ProviderDefinition: Identifiable, Hashable, Sendable {
             provider: .meta,
             prerequisite: "A supported Instagram professional account connected to a Facebook Page.",
             permissionScope: "Read permitted Instagram media and comments. Zoid 99 cannot publish or reply.",
-            credentialBoundary: .keychain,
-            setupGuidance: "Use Meta OAuth. The long-lived user token stays in macOS Keychain."
+            credentialBoundary: .inMemorySession,
+            setupGuidance: "Use Meta OAuth. The long-lived user token stays only in this live session."
         ),
         ProviderDefinition(
             provider: .x,
             prerequisite: "An X developer project with read access.",
             permissionScope: "Read configured accounts, posts, and keyword search results.",
-            credentialBoundary: .keychain,
-            setupGuidance: "Use an official X API bearer token. It stays in macOS Keychain."
+            credentialBoundary: .inMemorySession,
+            setupGuidance: "Use an official X API bearer token. It stays only in this live session."
         ),
         ProviderDefinition(
             provider: .officialFeeds,
@@ -130,73 +132,32 @@ protocol CredentialStoring: Sendable {
     func remove(provider: ExternalProvider) throws
 }
 
-enum CredentialStoreError: LocalizedError {
-    case unexpectedStatus(OSStatus)
-
-    var errorDescription: String? {
-        switch self {
-        case let .unexpectedStatus(status):
-            "Keychain operation failed with status \(status)."
-        }
-    }
-}
-
-struct KeychainCredentialStore: CredentialStoring {
-    private let service = "com.zoid99.external-provider"
+final class InMemoryCredentialStore: CredentialStoring, @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [ExternalProvider: String] = [:]
 
     func contains(provider: ExternalProvider) throws -> Bool {
-        var query = baseQuery(provider)
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-        query[kSecReturnData as String] = false
-        let status = SecItemCopyMatching(query as CFDictionary, nil)
-        if status == errSecSuccess { return true }
-        if status == errSecItemNotFound { return false }
-        throw CredentialStoreError.unexpectedStatus(status)
+        lock.lock()
+        defer { lock.unlock() }
+        return values[provider] != nil
     }
 
     func credential(provider: ExternalProvider) throws -> String? {
-        var query = baseQuery(provider)
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-        query[kSecReturnData as String] = true
-        var item: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
-        if status == errSecItemNotFound { return nil }
-        guard status == errSecSuccess, let data = item as? Data else {
-            throw CredentialStoreError.unexpectedStatus(status)
-        }
-        return String(data: data, encoding: .utf8)
+        lock.lock()
+        defer { lock.unlock() }
+        return values[provider]
     }
 
     func set(_ credential: String, provider: ExternalProvider) throws {
-        let data = Data(credential.utf8)
-        var query = baseQuery(provider)
-        let status = SecItemCopyMatching(query as CFDictionary, nil)
-        if status == errSecSuccess {
-            let update = [kSecValueData as String: data]
-            let updateStatus = SecItemUpdate(query as CFDictionary, update as CFDictionary)
-            guard updateStatus == errSecSuccess else { throw CredentialStoreError.unexpectedStatus(updateStatus) }
-            return
-        }
-        guard status == errSecItemNotFound else { throw CredentialStoreError.unexpectedStatus(status) }
-        query[kSecValueData as String] = data
-        query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        let addStatus = SecItemAdd(query as CFDictionary, nil)
-        guard addStatus == errSecSuccess else { throw CredentialStoreError.unexpectedStatus(addStatus) }
+        lock.lock()
+        defer { lock.unlock() }
+        values[provider] = credential
     }
 
     func remove(provider: ExternalProvider) throws {
-        let status = SecItemDelete(baseQuery(provider) as CFDictionary)
-        guard status == errSecSuccess || status == errSecItemNotFound else {
-            throw CredentialStoreError.unexpectedStatus(status)
-        }
-    }
-
-    private func baseQuery(_ provider: ExternalProvider) -> [String: Any] {
-        [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: provider.rawValue
-        ]
+        lock.lock()
+        defer { lock.unlock() }
+        values.removeValue(forKey: provider)
     }
 }
 
@@ -267,7 +228,7 @@ struct OfficialProviderCredentialValidator: ProviderCredentialValidating {
         ]
         return await validateRequest(
             HTTPRequest(url: components.url!),
-            successEvidence: "YouTube Data API read access was validated. The API key is stored only in macOS Keychain.",
+            successEvidence: "YouTube Data API read access was validated. The API key is stored only in this live session.",
             invalidEvidence: "YouTube rejected the API key or the Data API is not enabled for its project."
         )
     }
@@ -286,7 +247,7 @@ struct OfficialProviderCredentialValidator: ProviderCredentialValidating {
                 url: components.url!,
                 headers: ["Authorization": "Bearer \(credential)"]
             ),
-            successEvidence: "Instagram Graph API read access was validated. The token is stored only in macOS Keychain.",
+            successEvidence: "Instagram Graph API read access was validated. The token is stored only in this live session.",
             invalidEvidence: "Meta rejected the token or it cannot read a connected professional account.",
             isValidSuccessBody: { data in
                 guard let envelope = try? JSONDecoder().decode(InstagramValidationEnvelope.self, from: data) else {
@@ -306,7 +267,7 @@ struct OfficialProviderCredentialValidator: ProviderCredentialValidating {
                 url: URL(string: "https://api.x.com/2/users/by/username/XDevelopers?user.fields=id")!,
                 headers: ["Authorization": "Bearer \(credential)"]
             ),
-            successEvidence: "X API read access was validated. The bearer token is stored only in macOS Keychain.",
+            successEvidence: "X API read access was validated. The bearer token is stored only in this live session.",
             invalidEvidence: "X rejected the bearer token or the project does not have the required read access."
         )
     }
@@ -366,7 +327,7 @@ actor LocalProviderConnectionService: ProviderConnectionServicing {
     private let now: @Sendable () -> Date
 
     init(
-        credentials: any CredentialStoring = KeychainCredentialStore(),
+        credentials: any CredentialStoring = InMemoryCredentialStore(),
         validator: any ProviderCredentialValidating = OfficialProviderCredentialValidator(),
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
@@ -395,12 +356,12 @@ actor LocalProviderConnectionService: ProviderConnectionServicing {
                 checkedAt: checkedAt,
                 retryAt: nil
             )
-        case .keychain:
+        case .inMemorySession:
             do {
                 guard let credential = try credentials.credential(provider: provider) else {
                     return ProviderValidationResult(
                         state: .setupRequired,
-                        evidence: "No credential is stored in macOS Keychain.",
+                        evidence: "No credential is stored outside this live session.",
                         checkedAt: checkedAt,
                         retryAt: nil
                     )
@@ -409,7 +370,7 @@ actor LocalProviderConnectionService: ProviderConnectionServicing {
             } catch {
                 return ProviderValidationResult(
                     state: .unavailable,
-                    evidence: "Keychain access is unavailable. No credential was displayed or logged.",
+                    evidence: "Live-session credential storage is unavailable. No credential was displayed or logged.",
                     checkedAt: checkedAt,
                     retryAt: nil
                 )
@@ -432,7 +393,7 @@ actor LocalProviderConnectionService: ProviderConnectionServicing {
                 checkedAt: checkedAt,
                 retryAt: nil
             )
-        case .keychain:
+        case .inMemorySession:
             let trimmed = credential?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             guard !trimmed.isEmpty else {
                 return ProviderValidationResult(
@@ -450,7 +411,7 @@ actor LocalProviderConnectionService: ProviderConnectionServicing {
             } catch {
                 return ProviderValidationResult(
                     state: .unavailable,
-                    evidence: "The credential could not be stored in macOS Keychain.",
+                    evidence: "The credential could not be stored for this live session.",
                     checkedAt: checkedAt,
                     retryAt: nil
                 )

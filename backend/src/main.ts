@@ -26,6 +26,7 @@ const instagramCredential = process.env.ZOID99_INSTAGRAM_ACCOUNT_ID && process.e
 const app = buildApi({
   repository,
   apiToken: config.apiToken,
+  ...(config.operatorPassword ? { operatorPassword: config.operatorPassword } : {}),
   authenticationKeys: config.authenticationKeys,
   serviceVersion: config.serviceVersion,
   logger: { level: config.logLevel },

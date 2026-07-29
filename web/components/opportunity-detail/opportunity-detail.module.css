@@ -1,0 +1,379 @@
+.page {
+  max-width: 1240px;
+  padding: clamp(24px, 4vw, 56px) clamp(20px, 4vw, 56px) 100px;
+  margin: 0 auto;
+}
+
+.backLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 28px;
+  font-size: 12px;
+  text-underline-offset: 4px;
+}
+
+.header {
+  padding-bottom: 28px;
+  border-bottom: 1px solid var(--ink);
+}
+
+.eyebrow,
+.status,
+.label,
+.sectionLabel,
+.sourceMeta {
+  margin: 0;
+  color: var(--muted-ink);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.eyebrow,
+.sectionLabel {
+  color: var(--seal-deep);
+}
+
+.title {
+  max-width: 850px;
+  margin: 9px 0 14px;
+  font-family: "Times New Roman", Baskerville, Georgia, serif;
+  font-size: clamp(38px, 6vw, 72px);
+  font-weight: 400;
+  line-height: 0.98;
+}
+
+.brief {
+  max-width: 780px;
+  margin: 0;
+  color: var(--muted-ink);
+  font-size: 17px;
+  line-height: 1.6;
+}
+
+.headerMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 1px solid var(--rule);
+  font-size: 11px;
+}
+
+.badgeUrgent {
+  border-color: var(--seal);
+  color: var(--seal-deep);
+}
+
+.statusLine {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--rule);
+  color: var(--muted-ink);
+  font-size: 12px;
+}
+
+.actionBar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 18px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.action,
+.retry {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 40px;
+  padding: 8px 11px;
+  border: 1px solid var(--ink);
+  border-radius: 0;
+  background: var(--paper);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.action:hover,
+.retry:hover {
+  background: var(--mist);
+}
+
+.action:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.selected {
+  color: var(--paper);
+  background: var(--ink);
+}
+
+.selected:hover {
+  color: var(--paper);
+  background: var(--ink);
+}
+
+.mutationError {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--seal-deep);
+  font-size: 12px;
+}
+
+.sectionGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.75fr);
+  gap: 28px;
+  margin-top: 28px;
+}
+
+.section {
+  min-width: 0;
+  border-top: 1px solid var(--ink);
+  background: var(--paper);
+}
+
+.sourceSection {
+  margin-top: 28px;
+}
+
+.sectionHeading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.sectionHeading h2 {
+  margin: 0;
+  font-family: "Times New Roman", Baskerville, Georgia, serif;
+  font-size: 23px;
+  font-weight: 400;
+}
+
+.sectionBody {
+  padding: 18px 16px;
+}
+
+.explanation {
+  margin: 0;
+  color: var(--muted-ink);
+  line-height: 1.65;
+}
+
+.originalSource {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid var(--rule);
+}
+
+.originalSource h3 {
+  margin: 0;
+  font-family: "Times New Roman", Baskerville, Georgia, serif;
+  font-size: 20px;
+  font-weight: 400;
+}
+
+.sourceTitle {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.sourceMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px 14px;
+  font-size: 9px;
+}
+
+.sourceLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  margin-top: 4px;
+  font-size: 12px;
+  text-underline-offset: 4px;
+}
+
+.missing {
+  padding: 16px;
+  border: 1px solid var(--rule);
+  color: var(--muted-ink);
+}
+
+.missing strong {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--ink);
+  font-family: "Times New Roman", Baskerville, Georgia, serif;
+  font-size: 19px;
+  font-weight: 400;
+}
+
+.scoreTable {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.scoreTable th,
+.scoreTable td {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--pale-rule);
+  text-align: left;
+  vertical-align: top;
+}
+
+.scoreTable th {
+  color: var(--muted-ink);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.scoreTable td {
+  width: 70px;
+  font-family: "Times New Roman", Baskerville, Georgia, serif;
+  font-size: 19px;
+}
+
+.totalScore {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 15px;
+  padding-top: 14px;
+}
+
+.totalScore strong {
+  font-family: "Times New Roman", Baskerville, Georgia, serif;
+  font-size: 28px;
+  font-weight: 400;
+}
+
+.sourceList {
+  display: grid;
+}
+
+.sourceItem {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(150px, 1fr);
+  gap: 18px;
+  padding: 16px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.sourceItem h3 {
+  margin: 0 0 6px;
+  font-family: "Times New Roman", Baskerville, Georgia, serif;
+  font-size: 19px;
+  font-weight: 400;
+  line-height: 1.2;
+}
+
+.sourceSummary {
+  margin: 0;
+  color: var(--muted-ink);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.sourceFacts {
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  color: var(--muted-ink);
+  font-size: 11px;
+}
+
+.emptyEvidence {
+  margin: 0;
+  padding: 22px 16px;
+  color: var(--muted-ink);
+}
+
+.statePanel {
+  display: grid;
+  min-height: 300px;
+  place-content: center;
+  padding: 40px 24px;
+  text-align: center;
+}
+
+.statePanel h1 {
+  max-width: 620px;
+  margin: 0 0 10px;
+  font-family: "Times New Roman", Baskerville, Georgia, serif;
+  font-size: 32px;
+  font-weight: 400;
+  line-height: 1.08;
+}
+
+.statePanel p {
+  max-width: 560px;
+  margin: 0 auto 18px;
+  color: var(--muted-ink);
+}
+
+.stateLabel {
+  margin: 0 0 10px;
+  color: var(--seal-deep);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 880px) {
+  .sectionGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 600px) {
+  .page {
+    padding: 22px 16px 88px;
+  }
+
+  .backLink {
+    margin-bottom: 22px;
+  }
+
+  .brief {
+    font-size: 15px;
+  }
+
+  .actionBar {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .action {
+    width: 100%;
+  }
+
+  .sourceItem {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .sectionHeading,
+  .sectionBody {
+    padding-right: 13px;
+    padding-left: 13px;
+  }
+}

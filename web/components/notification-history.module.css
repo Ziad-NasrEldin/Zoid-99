@@ -1,0 +1,140 @@
+.page {
+  display: grid;
+  gap: 24px;
+  padding: 28px clamp(16px, 4vw, 56px) 56px;
+  color: #0d0a0a;
+}
+
+.header,
+.groupHeader,
+.statusBar,
+.notificationMeta {
+  display: flex;
+  align-items: center;
+}
+
+.header,
+.groupHeader,
+.statusBar {
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.eyebrow,
+.state,
+.count,
+.notificationMeta,
+.statusBar,
+.browserStatus {
+  margin: 0;
+  color: #545554;
+  font-family: var(--font-body, Georgia, serif);
+  font-size: 10px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.eyebrow { margin-bottom: 10px; color: #c23a2e; }
+.header h1,
+.groupHeader h2,
+.empty h2,
+.error h2 {
+  margin: 0;
+  font-family: var(--font-display, Georgia, serif);
+  font-weight: 400;
+}
+
+.header h1 { font-size: clamp(38px, 6vw, 68px); line-height: .95; }
+.description { max-width: 690px; margin: 14px 0 0; color: #545554; font-size: 15px; line-height: 1.6; }
+.headerState { display: grid; gap: 5px; justify-items: end; color: #545554; }
+.headerState strong { color: #0d0a0a; font-size: 11px; }
+
+.statusBar {
+  align-items: flex-start;
+  border-top: 1px solid #0d0a0a;
+  border-bottom: 1px solid #e0e0e0;
+  padding: 14px 0;
+}
+.browserStatus { text-align: right; }
+.browserStatus strong { color: #0d0a0a; font-weight: 400; }
+
+.ledger { display: grid; gap: 28px; }
+.group { border-top: 1px solid #0d0a0a; }
+.groupHeader { align-items: baseline; padding: 16px 0; }
+.groupHeader h2 { font-size: 28px; }
+.count { white-space: nowrap; }
+.rows { border-top: 1px solid #e0e0e0; }
+.notificationRow {
+  align-items: flex-start;
+  display: grid;
+  grid-template-columns: minmax(140px, .65fr) minmax(0, 1.55fr) minmax(160px, 1fr) minmax(110px, .55fr) auto;
+  gap: 18px;
+  border-bottom: 1px solid #e0e0e0;
+  padding: 16px 0;
+}
+.notificationRow.unread { border-left: 3px solid #c23a2e; padding-left: 12px; }
+.notificationMeta { align-items: flex-start; flex-direction: column; gap: 6px; letter-spacing: 0; text-transform: none; }
+.notificationMeta strong { color: #0d0a0a; font-size: 13px; font-weight: 400; }
+.notificationMeta span { color: #545554; font-size: 12px; line-height: 1.45; }
+.opportunityLink { color: #0d0a0a; font-family: var(--font-display, Georgia, serif); font-size: 19px; line-height: 1.2; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 4px; }
+.opportunityLink:hover { color: #c23a2e; }
+.state { color: #0d0a0a; letter-spacing: .04em; }
+.unread .state { color: #c23a2e; }
+.readButton {
+  min-width: 104px;
+  min-height: 44px;
+  border: 1px solid #0d0a0a;
+  border-radius: 0;
+  background: white;
+  color: #0d0a0a;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  padding: 0 10px;
+}
+.readButton:hover { background: #f5f5f2; }
+.readButton:disabled { cursor: wait; opacity: .5; }
+.empty,
+.error {
+  align-items: flex-start;
+  display: grid;
+  gap: 9px;
+  border-top: 1px solid #e0e0e0;
+  border-bottom: 1px solid #e0e0e0;
+  padding: 28px 0;
+}
+.empty h2,
+.error h2 { font-size: 25px; }
+.empty p,
+.error p { max-width: 700px; margin: 0; color: #545554; line-height: 1.55; }
+.error h2 { color: #c23a2e; }
+.retryButton { min-height: 44px; width: fit-content; border: 1px solid #0d0a0a; border-radius: 0; background: #0d0a0a; color: white; cursor: pointer; font: inherit; padding: 0 14px; }
+
+.page button:focus-visible,
+.page a:focus-visible { outline: 2px solid #c23a2e; outline-offset: 3px; }
+
+@media (max-width: 900px) {
+  .notificationRow { grid-template-columns: minmax(130px, .7fr) minmax(0, 1.5fr) minmax(130px, .8fr) auto; }
+  .notificationRow > :nth-child(4) { grid-column: 3; }
+  .notificationRow > :nth-child(5) { grid-column: 4; grid-row: 1 / span 2; }
+}
+
+@media (max-width: 620px) {
+  .page { gap: 20px; padding: 22px 16px 40px; }
+  .header { align-items: flex-start; flex-direction: column; }
+  .headerState { justify-items: start; }
+  .statusBar { align-items: flex-start; flex-direction: column; }
+  .browserStatus { text-align: left; }
+  .notificationRow { display: grid; grid-template-columns: 1fr auto; gap: 12px; padding: 16px 0; }
+  .notificationRow.unread { padding-left: 10px; }
+  .notificationRow > :nth-child(1),
+  .notificationRow > :nth-child(2),
+  .notificationRow > :nth-child(3),
+  .notificationRow > :nth-child(4) { grid-column: 1 / -1; }
+  .notificationRow > :nth-child(5) { grid-column: 1 / -1; grid-row: auto; justify-self: start; }
+  .groupHeader { align-items: flex-start; flex-direction: column; gap: 8px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .opportunityLink { transition: none; }
+}

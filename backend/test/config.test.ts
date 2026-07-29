@@ -5,6 +5,7 @@ import { loadConfig } from "../src/config.js";
 const validEnvironment = {
   DATABASE_URL: "postgresql://zoid99:zoid99@127.0.0.1:54329/zoid99",
   ZOID99_API_TOKEN: "a-secure-api-token-with-more-than-32-characters",
+  ZOID99_OPERATOR_PASSWORD: "a-strong-operator-password",
   SECRETS_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString("base64"),
 };
 
@@ -64,6 +65,23 @@ test("production configuration requires an explicit public health URL and bounde
       PUBLIC_BASE_URL: "http://zoid99.example.test",
     }),
     /PUBLIC_BASE_URL.*HTTPS/,
+  );
+});
+
+test("production configuration requires a strong operator password", () => {
+  assert.throws(
+    () => loadConfig({
+      ...validEnvironment,
+      NODE_ENV: "production",
+      DATABASE_URL: `${validEnvironment.DATABASE_URL}?sslmode=require`,
+      PUBLIC_BASE_URL: "https://zoid99.example.test",
+      ZOID99_OPERATOR_PASSWORD: undefined,
+    }),
+    /ZOID99_OPERATOR_PASSWORD/,
+  );
+  assert.throws(
+      () => loadConfig({ ...validEnvironment, ZOID99_OPERATOR_PASSWORD: "short" }),
+    /ZOID99_OPERATOR_PASSWORD/,
   );
 });
 

@@ -34,7 +34,8 @@ Authorization: Bearer <ZOID99_API_TOKEN>
 
 `GET /health` is a process liveness check.
 `GET /ready` checks database availability without exposing database details.
-The first version has one user and no public registration or session endpoint.
+The browser gateway uses the operator-session endpoints with its server-only bearer credential.
+The operator password never reaches browser storage, and only a hash of each random session token is persisted.
 
 ## macOS API contract
 
@@ -137,7 +138,7 @@ After reapplying migration 005, an operator can restore an archived row with an 
 Use a managed PostgreSQL 17 service with encrypted backups, point-in-time recovery, and required TLS.
 Store the API token, database URL, and encryption key in the deployment platform's secret manager.
 Store any always-on provider variables listed in `.env.production.example` in the same managed secret store and rotate them through the provider and deployment platform together.
-Rotate the API token by updating the service and macOS Keychain together.
+Rotate the API token by updating the service and deployment secret manager together.
 Rotating the encryption key requires decrypting and re-encrypting stored configuration in a controlled maintenance operation.
 See `ops/README.md` for backup, restore, monitoring, rotation, deployment, and rollback procedures.
 
@@ -148,4 +149,4 @@ Persist API keys only through `EncryptedConfigService` under `youtube.api-key`.
 Persist OAuth refresh tokens only through `EncryptedConfigService` under `youtube.oauth-refresh-token`.
 Never persist access tokens when they can be refreshed, and never expose any encrypted or decrypted connector secret through `/v1` responses or logs.
 The backend OAuth boundary is responsible for consent, refresh-token exchange, expiry handling, and revocation.
-The macOS-only alternative stores the credential in Keychain service `com.zoid99.youtube-data-api`.
+The macOS-only alternative stores the credential in local app preferences under the `com.zoid99.youtube-data-api` prefix.

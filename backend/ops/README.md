@@ -5,7 +5,8 @@
 The service runs as one stateless Linux container behind HTTPS.
 Only the reverse proxy may reach port 8099.
 The public internet may reach `/health` and `/ready`; every research route remains protected by the private bearer credential.
-There is no user login, session, signup, or public dashboard.
+The web dashboard requires the single operator password and a revocable secure session cookie.
+There is no signup, registration, password recovery, or multi-user account system.
 
 The chosen container host must support restart-on-failure, rolling or blue-green releases, environment-backed secrets, persistent structured logs, and an external HTTPS uptime check.
 Do not deploy this repository until the owner chooses and authorizes a host.
@@ -48,7 +49,7 @@ It never includes exception messages, request bodies, credentials, or encrypted 
 ## Credential rotation
 
 Rotate the private API credential without downtime by setting the new value as the primary credential and the old value as `ZOID99_API_TOKEN_PREVIOUS`.
-Restart the backend, update the macOS Keychain, verify one authenticated request with the new value, remove the previous value, and restart again.
+Restart the backend, update the deployment secret manager, verify one authenticated request with the new value, remove the previous value, and restart again.
 The previous value must exist only for the short rotation window.
 
 Rotate the encryption key only during maintenance:

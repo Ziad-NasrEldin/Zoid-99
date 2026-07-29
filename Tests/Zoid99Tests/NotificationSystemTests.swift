@@ -174,6 +174,45 @@ final class NotificationSystemTests: XCTestCase {
         XCTAssertEqual(second.records.count, 1)
     }
 
+    func testPreviouslyScheduledDigestIsNotReplayedWhenTheAlertPolicyChanges() async {
+        let delivery = RecordingNotificationDelivery(permission: .authorized)
+        let coordinator = NotificationCoordinator(delivery: delivery)
+        let now = date(2027, 1, 15, 12)
+        var settings = AppSettings.defaults
+        settings.notificationsEnabled = true
+        settings.notificationPermission = .authorized
+        let opportunityID = UUID(uuidString: "00000000-0000-0000-0000-000000000550")!
+        var scheduledDigest = NotificationRecord(
+            id: UUID(),
+            opportunityID: opportunityID,
+            title: "Previously queued research",
+            delivery: .digest,
+            createdAt: now,
+            isRead: false
+        )
+        scheduledDigest.deliveryState = .scheduled
+        scheduledDigest.scheduledAt = date(2027, 1, 15, 18)
+        let newImmediateCandidate = NotificationRecord(
+            id: UUID(),
+            opportunityID: opportunityID,
+            title: "Previously queued research",
+            delivery: .immediate,
+            createdAt: now,
+            isRead: false
+        )
+
+        let result = await coordinator.process(
+            candidates: [newImmediateCandidate],
+            existing: [scheduledDigest],
+            settings: settings,
+            now: now,
+            calendar: utcCalendar
+        )
+
+        XCTAssertTrue(delivery.requests.isEmpty)
+        XCTAssertEqual(result.records, [scheduledDigest])
+    }
+
     func testAlertWaitingForPermissionSchedulesAfterUserOptsIn() async {
         let delivery = RecordingNotificationDelivery(permission: .notDetermined)
         let coordinator = NotificationCoordinator(delivery: delivery)

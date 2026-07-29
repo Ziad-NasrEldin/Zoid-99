@@ -42,14 +42,15 @@ struct NotificationCoordinator: Sendable {
         now: Date = .now,
         calendar: Calendar = .current
     ) async -> NotificationProcessingResult {
-        let terminalKeys = Set(existing.filter {
+        let terminalOpportunityIDs = Set(existing.filter {
             $0.deliveryState == .scheduled || $0.deliveryState == .delivered
-        }.map { key(for: $0) })
-        let candidateKeys = Set(candidates.map { key(for: $0) })
+        }.map(\.opportunityID))
+        let candidateOpportunityIDs = Set(candidates.map(\.opportunityID))
         let retained = existing.filter {
-            terminalKeys.contains(key(for: $0)) || !candidateKeys.contains(key(for: $0))
+            terminalOpportunityIDs.contains($0.opportunityID)
+                || !candidateOpportunityIDs.contains($0.opportunityID)
         }
-        let fresh = candidates.filter { !terminalKeys.contains(key(for: $0)) }
+        let fresh = candidates.filter { !terminalOpportunityIDs.contains($0.opportunityID) }
         guard !fresh.isEmpty else {
             return NotificationProcessingResult(records: existing, permission: settings.notificationPermission)
         }
@@ -168,10 +169,6 @@ struct NotificationCoordinator: Sendable {
         result.scheduledAt = scheduledAt
         result.statusDetail = detail
         return result
-    }
-
-    private func key(for record: NotificationRecord) -> String {
-        "\(record.opportunityID.uuidString):\(record.delivery.rawValue)"
     }
 
     private func deepLink(for opportunityID: UUID) -> URL {

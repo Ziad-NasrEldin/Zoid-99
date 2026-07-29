@@ -17,6 +17,13 @@ final class ResearchPipelineTests: XCTestCase {
         XCTAssertTrue(release.isHighPriority)
         XCTAssertEqual(output.notifications.first { $0.opportunityID == release.id }?.delivery, .immediate)
 
+        for opportunity in output.opportunities where opportunity.verification == .confirmed {
+            XCTAssertEqual(
+                output.notifications.first { $0.opportunityID == opportunity.id }?.delivery,
+                .immediate
+            )
+        }
+
         let question = try! XCTUnwrap(output.opportunities.first { $0.topicKey == "availability-question" })
         XCTAssertEqual(question.verification, .unverified)
         XCTAssertNil(question.originalSource)

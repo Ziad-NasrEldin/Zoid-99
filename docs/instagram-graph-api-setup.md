@@ -21,7 +21,7 @@ Business Discovery reference items remain unverified and are never labeled as ow
 6. Use a supported explicit Graph API version.
    Do not silently advance API versions.
 7. Exchange and refresh tokens on a trusted backend.
-   Store access tokens in encrypted server configuration or macOS Keychain.
+   Store access tokens in encrypted server configuration or local app preferences.
    Never put tokens in source files, fixtures, logs, URLs, screenshots, or documentation.
 8. Configure `selectedProfessionalAccountID` when a token exposes more than one professional account.
 9. Configure Business Discovery usernames only when the app has reviewed access and the target is an eligible professional account.

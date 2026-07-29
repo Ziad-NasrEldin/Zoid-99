@@ -1,0 +1,12 @@
+{
+  "items": [
+    {
+      "id": "20000000-0000-4000-8000-000000000001",
+      "disposition": "dismissed",
+      "dispositionUpdatedAt": "2026-07-28T13:00:00.000Z",
+      "dispositionMutationID": "50000000-0000-4000-8000-000000000001"
+    }
+  ],
+  "nextCursor": "page-2",
+  "serverTime": "2026-07-28T14:00:00.000Z"
+}

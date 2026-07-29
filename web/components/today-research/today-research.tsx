@@ -249,6 +249,9 @@ function TodayRow({
           {opportunity.title}
         </Link>
         <p className={styles.brief} dir={isArabicText(opportunity.brief) ? "rtl" : "auto"}>{opportunity.brief}</p>
+        <Link className={styles.readMore} href={`/opportunities/${opportunity.id}`} aria-label={`Read more about ${opportunity.title}`}>
+          Read more <span aria-hidden="true">→</span>
+        </Link>
         <div className={styles.actions} aria-label={`Actions for ${opportunity.title}`}>
           {(Object.keys(actionIcons) as Array<Exclude<OpportunityDisposition, "active">>).map((disposition) => {
             const Icon = actionIcons[disposition];
@@ -273,7 +276,12 @@ function TodayRow({
         <span>Published: {formatResearchDate(originalSource?.publishedAt ?? opportunity.earliestPublishedAt)}</span>
         <span>Collected: {formatResearchDate(originalSource?.collectedAt ?? null)}</span>
         <span>{originalSource?.group ?? "Original source unavailable"}</span>
-        {originalSource ? <a className={styles.sourceLink} href={originalSource.url} target="_blank" rel="noreferrer">Open original <ExternalLink aria-hidden="true" size={13} strokeWidth={1.6} /></a> : null}
+        {originalSource ? (
+          <>
+            <span className={styles.sourceURL} title={originalSource.url}>URL: {originalSource.url}</span>
+            <a className={styles.sourceLink} href={originalSource.url} target="_blank" rel="noreferrer">Open original <ExternalLink aria-hidden="true" size={13} strokeWidth={1.6} /></a>
+          </>
+        ) : null}
       </div>
       <div className={styles.metaStack}>
         <span className={styles.delivery}>{notificationDelivery ? `${notificationDelivery} delivery` : "No notification scheduled"}</span>

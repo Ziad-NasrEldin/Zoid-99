@@ -41,6 +41,7 @@ describe("TodayResearch", () => {
     await screen.findByRole("link", { name: "Official release 99" });
     expect(screen.getByText("Live data")).toBeVisible();
     expect(screen.getByText("Open original")).toBeVisible();
+    expect(screen.getByText("URL: https://official.example/releases/99")).toBeVisible();
     expect(screen.getByText("Digest delivery")).toBeVisible();
 
     await user.click(screen.getByRole("button", { name: "Watch" }));
@@ -116,5 +117,9 @@ describe("TodayResearch", () => {
     expect(await screen.findByRole("link", { name: "Official release 99" })).toBeVisible();
     expect(screen.getByText("1 active item")).toBeVisible();
     expect(screen.getByLabelText("Standard priority")).toBeVisible();
+    expect(screen.getByRole("link", { name: "Read more about Official release 99" })).toHaveAttribute(
+      "href",
+      `/opportunities/${standardPriority.id}`,
+    );
   });
 });

@@ -831,6 +831,7 @@ private enum SourceURLLabel {
 struct RadarView: View {
     @EnvironmentObject private var store: AppStore
     @FocusState private var searchFocused: Bool
+    @State private var openFilterMenuID: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -851,7 +852,9 @@ struct RadarView: View {
                         options: [.init(value: nil, title: "All sources")]
                             + SourceGroup.allCases.map { .init(value: Optional($0), title: $0.rawValue) },
                         accessibilityLabel: "Filter by source",
-                        width: 145
+                        width: 145,
+                        menuID: "radar-source",
+                        activeMenuID: $openFilterMenuID
                     )
                     TextField("Topic", text: $store.radarTopic)
                         .sumiField()
@@ -863,7 +866,9 @@ struct RadarView: View {
                         options: [.init(value: nil, title: "Any country")]
                             + store.radarCountries.map { .init(value: Optional($0), title: $0) },
                         accessibilityLabel: "Filter by country",
-                        width: 135
+                        width: 135,
+                        menuID: "radar-country",
+                        activeMenuID: $openFilterMenuID
                     )
                     SumiSelect(
                         title: "Language",
@@ -871,8 +876,16 @@ struct RadarView: View {
                         options: [.init(value: nil, title: "Any language")]
                             + store.radarLanguages.map { .init(value: Optional($0), title: $0) },
                         accessibilityLabel: "Filter by language",
-                        width: 135
+                        width: 135,
+                        menuID: "radar-language",
+                        activeMenuID: $openFilterMenuID
                     )
+                }
+                .zIndex(filterRowZIndex(for: ["radar-source", "radar-country", "radar-language"], base: 3))
+                if filterMenuIsOpen(for: ["radar-source", "radar-country", "radar-language"]) {
+                    Color.clear
+                        .frame(height: filterMenuClearance(optionCount: SourceGroup.allCases.count + 1))
+                        .accessibilityHidden(true)
                 }
                 HStack(spacing: 10) {
                     SumiSelect(
@@ -880,7 +893,9 @@ struct RadarView: View {
                         selection: $store.radarFreshness,
                         options: RadarFreshness.allCases.map { .init(value: $0, title: $0.rawValue) },
                         accessibilityLabel: "Filter by freshness",
-                        width: 125
+                        width: 125,
+                        menuID: "radar-freshness",
+                        activeMenuID: $openFilterMenuID
                     )
                     SumiSelect(
                         title: "Verification",
@@ -888,9 +903,21 @@ struct RadarView: View {
                         options: [.init(value: nil, title: "Any state")]
                             + VerificationState.allCases.map { .init(value: Optional($0), title: $0.rawValue) },
                         accessibilityLabel: "Filter by verification",
-                        width: 135
+                        width: 135,
+                        menuID: "radar-verification",
+                        activeMenuID: $openFilterMenuID
                     )
                     Spacer()
+                }
+                .zIndex(filterRowZIndex(for: ["radar-freshness", "radar-verification"], base: 2))
+                if filterMenuIsOpen(for: ["radar-freshness", "radar-verification"]) {
+                    Color.clear
+                        .frame(
+                            height: filterMenuClearance(
+                                optionCount: max(RadarFreshness.allCases.count, VerificationState.allCases.count + 1)
+                            )
+                        )
+                        .accessibilityHidden(true)
                 }
                 HStack(spacing: 10) {
                     SumiSelect(
@@ -901,7 +928,9 @@ struct RadarView: View {
                         ),
                         options: OpportunitySort.allCases.map { .init(value: $0, title: $0.title) },
                         accessibilityLabel: "Sort Live Radar opportunities",
-                        width: 190
+                        width: 190,
+                        menuID: "radar-sort",
+                        activeMenuID: $openFilterMenuID
                     )
                     Button("Reset sort") { store.resetRadarSort() }
                         .buttonStyle(SumiButtonStyle())
@@ -915,7 +944,14 @@ struct RadarView: View {
                     Button("Clear filters") { store.clearRadarFilters() }
                         .buttonStyle(SumiButtonStyle())
                 }
+                .zIndex(filterRowZIndex(for: ["radar-sort"], base: 1))
+                if filterMenuIsOpen(for: ["radar-sort"]) {
+                    Color.clear
+                        .frame(height: filterMenuClearance(optionCount: OpportunitySort.allCases.count))
+                        .accessibilityHidden(true)
+                }
             }
+            .zIndex(openFilterMenuID == nil ? 1 : 10)
             Divider().overlay(SumiColor.ink)
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
@@ -942,6 +978,20 @@ struct RadarView: View {
         .frame(maxWidth: .infinity, alignment: .center)
         .sumiPage()
         .onChange(of: store.searchFocusRequest) { _, _ in searchFocused = true }
+    }
+
+    private func filterRowZIndex(for menuIDs: Set<String>, base: Double) -> Double {
+        guard let openFilterMenuID, menuIDs.contains(openFilterMenuID) else { return base }
+        return 100
+    }
+
+    private func filterMenuIsOpen(for menuIDs: Set<String>) -> Bool {
+        guard let openFilterMenuID else { return false }
+        return menuIDs.contains(openFilterMenuID)
+    }
+
+    private func filterMenuClearance(optionCount: Int) -> CGFloat {
+        CGFloat(max(optionCount, 1)) * 32 + 12
     }
 }
 
@@ -1497,7 +1547,7 @@ struct NotificationsView: View {
             LedgerHeader(
                 eyebrow: "Alert ledger",
                 title: "Notifications",
-                subtitle: "Immediate interruption for strong opportunities; everything else enters a digest."
+                subtitle: "Every verified opportunity interrupts immediately; unverified items enter a digest."
             )
             HStack {
                 StateLabel(
@@ -1658,6 +1708,8 @@ struct SettingsView: View {
                 .sumiStateMotion(store.notificationsEnabled)
                 SectionTitle("OPPORTUNITY ACTIONS")
                 OpportunityActionManagement()
+                SectionTitle("BLOCKED SOURCES")
+                SourceBlocklistManagement()
                 SectionTitle("DISCORD CHANNEL")
                 VStack(alignment: .leading, spacing: 14) {
                     HStack {
@@ -1740,7 +1792,7 @@ struct SettingsView: View {
                         decrement: { store.setRefreshMinutes(max(5, store.refreshMinutes - 5)) },
                         increment: { store.setRefreshMinutes(min(60, store.refreshMinutes + 5)) }
                     )
-                    Text("Research, dispositions, watchlists, settings, notification history, and source health are stored locally for offline access. Live account tokens must be stored in macOS Keychain when connectors are configured.")
+                    Text("Research, dispositions, watchlists, settings, notification history, source health, and configured provider credentials are stored locally for offline access.")
                         .font(SumiFont.body())
                         .foregroundStyle(SumiColor.mutedInk)
                     Text("Always-on monitoring while this Mac sleeps requires a separately deployed service. It is not active in the local fixture mode.")
@@ -1760,7 +1812,7 @@ struct SettingsView: View {
         .sheet(isPresented: $confirmingDiscordRemoval) {
             SumiConfirmationSheet(
                 title: "Remove Discord webhook?",
-                message: "This removes the webhook from macOS Keychain and disables Discord delivery. Native macOS notifications are unchanged.",
+                message: "This removes the locally saved webhook and disables Discord delivery. Native macOS notifications are unchanged.",
                 confirmTitle: "Remove webhook",
                 cancel: { confirmingDiscordRemoval = false },
                 confirm: {
@@ -1773,6 +1825,79 @@ struct SettingsView: View {
 
     private func hourLabel(_ hour: Int) -> String {
         String(format: "%02d:00", hour)
+    }
+}
+
+private struct SourceBlocklistManagement: View {
+    @EnvironmentObject private var store: AppStore
+    @State private var sourceInput = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Blocked domains are removed from cached research and future refreshes before they reach Today, Live Radar, notifications, or opportunity evidence.")
+                .font(SumiFont.body())
+                .foregroundStyle(SumiColor.mutedInk)
+            HStack(alignment: .top, spacing: 10) {
+                TextField("Domain or source URL", text: $sourceInput)
+                    .sumiField()
+                    .accessibilityLabel("Source domain or URL to block")
+                Button("Block source") {
+                    if store.blockSourceDomain(sourceInput) {
+                        sourceInput = ""
+                    }
+                }
+                .buttonStyle(SumiButtonStyle(primary: true))
+                .disabled(sourceInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            if let error = store.sourceBlocklistError {
+                Text(error)
+                    .font(SumiFont.body(13))
+                    .foregroundStyle(SumiColor.seal)
+            }
+            Divider().overlay(SumiColor.rule)
+            if store.sourceBlocklist.isEmpty {
+                Text("No blocked sources")
+                    .font(SumiFont.body())
+                    .foregroundStyle(SumiColor.mutedInk)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(store.sourceBlocklist) { rule in
+                        HStack(alignment: .top, spacing: 12) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(rule.domain)
+                                    .font(SumiFont.body())
+                                    .textSelection(.enabled)
+                                HStack(spacing: 8) {
+                                    Text("DOMAIN-WIDE RULE")
+                                    Text(rule.createdAt, style: .date)
+                                }
+                                .font(SumiFont.meta(9))
+                                .tracking(0.5)
+                                .foregroundStyle(SumiColor.mutedInk)
+                                if let note = rule.note, !note.isEmpty {
+                                    Text(note)
+                                        .font(SumiFont.body(12))
+                                        .foregroundStyle(SumiColor.mutedInk)
+                                }
+                            }
+                            Spacer()
+                            Button("Unblock") {
+                                _ = store.unblockSourceDomain(id: rule.id)
+                            }
+                            .buttonStyle(SumiButtonStyle())
+                            .help("Allow \(rule.domain) to appear after a future refresh")
+                            .accessibilityLabel("Unblock source \(rule.domain)")
+                        }
+                        .padding(.vertical, 10)
+                        .overlay(alignment: .bottom) { Divider().overlay(SumiColor.rule) }
+                    }
+                }
+                .sumiCollectionMotion(store.sourceBlocklist.map(\.id))
+            }
+        }
+        .padding(16)
+        .background(SumiColor.softPaper)
+        .overlay(Rectangle().stroke(SumiColor.rule, lineWidth: 1))
     }
 }
 
@@ -2013,12 +2138,12 @@ private struct ProviderConnectionSheet: View {
                 .sumiStateMotion("\(connection.state.rawValue)-\(connection.evidence)")
             }
             connectionDetails
-            if definition.credentialBoundary == .keychain {
+            if definition.credentialBoundary == .localPreferences {
                 VStack(alignment: .leading, spacing: 7) {
                     Text("PROVIDER CREDENTIAL").font(SumiFont.meta(9)).tracking(1)
                     SecureField("Paste credential", text: $credential)
                         .sumiField()
-                    Text("The value is sent directly to macOS Keychain. It is never displayed again or written to app logs.")
+                    Text("The value is saved locally, hidden after submission, and never written to app logs.")
                         .font(SumiFont.body(12))
                         .foregroundStyle(SumiColor.mutedInk)
                 }
@@ -2027,7 +2152,7 @@ private struct ProviderConnectionSheet: View {
                 Button(definition.credentialBoundary == .serverSecret ? "Check server status" : "Validate again") {
                     Task { await store.validateConnection(provider) }
                 }
-                if definition.credentialBoundary == .keychain {
+                if definition.credentialBoundary == .localPreferences {
                     Button("Save & validate") {
                         let submitted = credential
                         credential = ""
@@ -2307,7 +2432,7 @@ private struct ResearchTextBlock: Identifiable {
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(
                 of: "\\s+-\\s+(Added|Fixed|Changed|Removed|Updated|Improved)\\b",
-                with: "\n- ",
+                with: "\n- $1",
                 options: .regularExpression
             )
         var blocks: [ResearchTextBlock] = []
@@ -2340,7 +2465,7 @@ private struct ResearchTextBlock: Identifiable {
     }
 
     private static func cleanHeading(_ line: String) -> String {
-        line.drop(while: { -e == "#" || -e == " " }).description
+        line.drop(while: { $0 == "#" || $0 == " " }).description
     }
 
     private static func cleanBullet(_ line: String) -> String? {
@@ -2412,7 +2537,7 @@ struct FirstRunView: View {
             "Credentials are optional during setup. Unconfigured sources remain clearly marked as setup required.",
             "Start with AI agents, Egypt, the Gulf, Arabic, and the creators that matter to your research.",
             "Only high-priority confirmed opportunities interrupt you. Lower-priority developments enter a digest.",
-            "Local research persists across restarts for offline reading. Demo fixtures are explicitly labeled. Live credentials belong in Keychain, and an always-on service must be deployed separately."
+            "Local research persists across restarts for offline reading. Demo fixtures are explicitly labeled. Live credentials stay in local app preferences, and an always-on service must be deployed separately."
         ][step]
     }
 
