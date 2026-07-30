@@ -1,0 +1,8 @@
+{
+  "provider": "google-trends",
+  "state": "Cached",
+  "lastActivity": "2026-07-28T08:05:00.000Z",
+  "evidence": "An encrypted server credential exists, but it has not been validated in this process.",
+  "repairAction": "Validate again",
+  "retryAt": null
+}

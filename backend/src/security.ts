@@ -8,6 +8,17 @@ export function isAuthorized(authorizationHeader: string | undefined, expectedTo
   return timingSafeEqual(suppliedDigest, expectedDigest);
 }
 
+export function hashSecret(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+export function secretsMatch(left: string, right: string): boolean {
+  return timingSafeEqual(
+    createHash("sha256").update(left).digest(),
+    createHash("sha256").update(right).digest(),
+  );
+}
+
 export class SecretCipher {
   constructor(private readonly key: Buffer) {
     if (key.length !== 32) throw new Error("SecretCipher requires a 32-byte key");

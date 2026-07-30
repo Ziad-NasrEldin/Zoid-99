@@ -49,7 +49,7 @@ Public reference-channel reads use an API key.
 Owned-channel discovery with `mine=true` requires OAuth 2.0 authorization.
 Public comments from a known owned or reference video can use an API key.
 Credentials are supplied at runtime and are never bundled.
-Use Sources & Settings to validate and store a YouTube Data API key in macOS Keychain without displaying it again.
+Use Sources & Settings to validate and store a YouTube Data API key in local app preferences without displaying it again.
 The backend must exchange refresh tokens for short-lived access tokens and must never return refresh tokens through its public API.
 Search country values use ISO 3166-1 alpha-2 codes such as `EG`, `SA`, and `US`; language values use YouTube relevance-language codes such as `ar` and `en`.
 Creator watchlist values for YouTube must be stable channel IDs beginning with `UC`, not mutable display names or handles.
@@ -95,7 +95,7 @@ The normal test suite never requires network access.
 
 Zoid 99 has no login, signup, account creation, team account, or app-account system.
 Connection screens authorize external research providers only.
-YouTube, Instagram/Meta, and X credentials use macOS Keychain when the native connector owns authorization.
+YouTube, Instagram/Meta, and X credentials use local app preferences when the native connector owns authorization.
 Google Trends and AI provider credentials are accepted only by the monitoring server and are encrypted before persistence.
 Official feeds require no account.
 Every provider remains setup required, unavailable, unsupported, delayed, rate limited, cached, or disconnected until its connector supplies verified evidence.

@@ -24,7 +24,8 @@ actor BackendResearchSync {
     }
 
     func synchronize(
-        additionalConnectors: [GroupedSourceConnector] = []
+        additionalConnectors: [GroupedSourceConnector] = [],
+        seed: ResearchSyncSeed? = nil
     ) async -> [SourceSyncResult] {
         let plannedConnectors = connectors.map {
             GroupedSourceConnector(group: .official, connector: $0)
@@ -40,21 +41,120 @@ actor BackendResearchSync {
             }
             return await group.reduce(into: []) { $0.append($1) }
         }
-        let changedItems = collections
+        let usableCollections = collections
             .map(\.collection)
             .filter { $0.state == .available || $0.state == .delayed }
-            .flatMap(\.items)
+        let collectedItems = usableCollections.flatMap(\.items)
+        let blockedRules = seed?.sourceBlocklist ?? []
+        let changedItems = collectedItems.filter { !isBlocked($0, by: blockedRules) }
         let sourceHealth = makeSourceHealth(collections)
 
         do {
-            if !changedItems.isEmpty {
+            if !changedItems.isEmpty && (seed?.sourceItems.isEmpty ?? true) {
                 let output = ResearchPipeline().run(items: changedItems)
                 try await ingest(output: output, sourceHealth: sourceHealth)
             }
-            guard let bootstrap = try await bootstrap() else {
+            guard var canonicalBootstrap = try await bootstrap() else {
                 return unchangedResults(sourceHealth)
             }
-            return results(from: bootstrap)
+            if let seed, !seed.sourceItems.isEmpty {
+                let remoteItemKeys = Set(
+                    canonicalBootstrap.opportunities
+                        .flatMap(\.items)
+                        .map { "\($0.group.rawValue):\($0.externalID)" }
+                )
+                let missingTopicKeys = Set(
+                    seed.sourceItems
+                        .filter { !remoteItemKeys.contains("\($0.group.rawValue):\($0.externalID)") }
+                        .map(\.topicKey)
+                )
+                let itemsToImport = seed.sourceItems.filter { missingTopicKeys.contains($0.topicKey) }
+                let remoteOpportunitiesByTopic = Dictionary(
+                    uniqueKeysWithValues: canonicalBootstrap.opportunities.map { ($0.topicKey, $0) }
+                )
+                var remoteOpportunitiesBySourceURL: [URL: APIOpportunity] = [:]
+                var remoteOpportunitiesByTitle: [String: APIOpportunity] = [:]
+                for remoteOpportunity in canonicalBootstrap.opportunities {
+                    let normalizedTitle = remoteOpportunity.title
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                        .lowercased()
+                    if remoteOpportunitiesByTitle[normalizedTitle] == nil {
+                        remoteOpportunitiesByTitle[normalizedTitle] = remoteOpportunity
+                    }
+                    for item in remoteOpportunity.items where remoteOpportunitiesBySourceURL[item.url] == nil {
+                        remoteOpportunitiesBySourceURL[item.url] = remoteOpportunity
+                    }
+                }
+                let remoteNotificationOpportunityIDs = Set(
+                    canonicalBootstrap.notifications.map(\.opportunityID)
+                )
+                let seedNotificationsByOpportunityID = Dictionary(
+                    uniqueKeysWithValues: seed.notifications.map { ($0.opportunityID, $0) }
+                )
+                let seedOpportunitiesToSync = seed.opportunities.compactMap { opportunity -> Opportunity? in
+                    let normalizedTitle = opportunity.title
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                        .lowercased()
+                    let matchingRemote = remoteOpportunitiesByTopic[opportunity.topicKey]
+                        ?? opportunity.items.compactMap { remoteOpportunitiesBySourceURL[$0.url] }.first
+                        ?? remoteOpportunitiesByTitle[normalizedTitle]
+                    if let matchingRemote {
+                        guard seedNotificationsByOpportunityID[opportunity.id] != nil,
+                              !remoteNotificationOpportunityIDs.contains(matchingRemote.id) else {
+                            return nil
+                        }
+                        return Opportunity(
+                            id: opportunity.id,
+                            topicKey: matchingRemote.topicKey,
+                            title: opportunity.title,
+                            brief: opportunity.brief,
+                            verification: opportunity.verification,
+                            earliestPublishedAt: opportunity.earliestPublishedAt,
+                            originalSource: opportunity.originalSource,
+                            items: opportunity.items,
+                            score: opportunity.score,
+                            regionalExplanation: opportunity.regionalExplanation,
+                            coverageExplanation: opportunity.coverageExplanation,
+                            disposition: opportunity.disposition,
+                            dispositionUpdatedAt: opportunity.dispositionUpdatedAt,
+                            dispositionMutationID: opportunity.dispositionMutationID
+                        )
+                    }
+                    return missingTopicKeys.contains(opportunity.topicKey) ? opportunity : nil
+                }
+                guard !itemsToImport.isEmpty || !seedOpportunitiesToSync.isEmpty else {
+                    return results(from: canonicalBootstrap)
+                }
+                let generatedOutput = ResearchPipeline().run(items: itemsToImport)
+                let opportunitiesToSync = seedOpportunitiesToSync.isEmpty
+                    ? generatedOutput.opportunities
+                    : seedOpportunitiesToSync
+                let importedOpportunityIDs = Set(opportunitiesToSync.map(\.id))
+                let storedNotifications = seed.notifications.filter {
+                    importedOpportunityIDs.contains($0.opportunityID)
+                }
+                let seedOutput = ResearchOutput(
+                    normalizedItems: itemsToImport,
+                    opportunities: opportunitiesToSync,
+                    comments: generatedOutput.comments,
+                    notifications: storedNotifications.isEmpty
+                        ? generatedOutput.notifications
+                        : storedNotifications,
+                    aiStatus: generatedOutput.aiStatus,
+                    aiInterpretations: generatedOutput.aiInterpretations
+                )
+                try await ingest(
+                    output: seedOutput,
+                    sourceHealth: seed.sourceHealth.isEmpty
+                        ? sourceHealth
+                        : seed.sourceHealth.map(APIHealth.init)
+                )
+                bootstrapETag = nil
+                if let seededBootstrap = try await bootstrap() {
+                    canonicalBootstrap = seededBootstrap
+                }
+            }
+            return results(from: canonicalBootstrap)
         } catch {
             return SourceGroup.allCases.map { group in
                 SourceSyncResult(
@@ -215,6 +315,16 @@ actor BackendResearchSync {
         return request
     }
 
+    private func isBlocked(_ item: SourceItem, by rules: [SourceBlockRule]) -> Bool {
+        guard let domain = SourceDomainNormalizer.normalizedDomain(from: item.url) else {
+            return false
+        }
+        return rules.contains { rule in
+            let subdomainSuffix = "." + rule.domain
+            return domain == rule.domain || domain.hasSuffix(subdomainSuffix)
+        }
+    }
+
     private func makeSourceHealth(_ grouped: [GroupedConnectorCollection]) -> [APIHealth] {
         SourceGroup.allCases.map { group in
             makeHealth(
@@ -269,15 +379,22 @@ actor BackendResearchSync {
     }
 
     private func results(from bootstrap: BootstrapResponse) -> [SourceSyncResult] {
-        let items = bootstrap.opportunities.flatMap(\.items)
+        let truthByGroup = Dictionary(
+            uniqueKeysWithValues: bootstrap.sourceHealth.map { ($0.group, $0.dataTruth) }
+        )
+        let opportunities = bootstrap.opportunities.map { $0.model(dataTruthByGroup: truthByGroup) }
+        let items = opportunities.flatMap(\.items)
+        let notifications = bootstrap.notifications.map(\.model)
         return bootstrap.sourceHealth.map { health in
             SourceSyncResult(
                 group: health.group,
                 collectedAt: health.lastActivity ?? .now,
-                items: items.filter { $0.group == health.group }.map(\.model),
+                items: items.filter { $0.group == health.group },
                 state: health.state,
                 dataTruth: health.dataTruth,
-                evidence: health.evidence
+                evidence: health.evidence,
+                canonicalOpportunities: opportunities,
+                canonicalNotifications: notifications
             )
         }
     }
@@ -340,6 +457,31 @@ private struct APIHealth: Codable {
     let evidence: String
     let repairAction: String
     let dataTruth: DataTruth
+
+    init(
+        group: SourceGroup,
+        state: ConnectionState,
+        lastActivity: Date?,
+        evidence: String,
+        repairAction: String,
+        dataTruth: DataTruth
+    ) {
+        self.group = group
+        self.state = state
+        self.lastActivity = lastActivity
+        self.evidence = evidence
+        self.repairAction = repairAction
+        self.dataTruth = dataTruth
+    }
+
+    init(_ health: SourceHealth) {
+        group = health.group
+        state = health.state
+        lastActivity = health.lastActivity
+        evidence = health.evidence
+        repairAction = health.repairAction
+        dataTruth = health.dataTruth
+    }
 }
 
 private struct APIItem: Codable {
@@ -380,11 +522,15 @@ private struct APIItem: Codable {
     }
 
     var model: SourceItem {
+        model(dataTruth: .live)
+    }
+
+    func model(dataTruth: DataTruth) -> SourceItem {
         SourceItem(
             id: id ?? UUID(), group: group, externalID: externalID, title: title, summary: summary,
             author: author, url: url, publishedAt: publishedAt, collectedAt: collectedAt,
             language: language, country: country, topicKey: topicKey, isOriginalSource: isOriginalSource,
-            credibility: credibility, engagement: engagement, verification: verification, dataTruth: .live
+            credibility: credibility, engagement: engagement, verification: verification, dataTruth: dataTruth
         )
     }
 }
@@ -424,10 +570,65 @@ private struct APINotificationInput: Encodable {
 private struct BootstrapResponse: Decodable {
     let sourceHealth: [APIHealth]
     let opportunities: [APIOpportunity]
+    let notifications: [APINotification]
 }
 
 private struct APIOpportunity: Decodable {
+    let id: UUID
+    let topicKey: String
+    let title: String
+    let brief: String
+    let verification: VerificationState
+    let earliestPublishedAt: Date
+    let originalSource: APIItem?
     let items: [APIItem]
+    let score: ScoreBreakdown
+    let regionalExplanation: String
+    let coverageExplanation: String
+    let disposition: OpportunityDisposition
+    let dispositionUpdatedAt: Date?
+    let dispositionMutationID: UUID?
+
+    func model(dataTruthByGroup: [SourceGroup: DataTruth]) -> Opportunity {
+        Opportunity(
+            id: id,
+            topicKey: topicKey,
+            title: title,
+            brief: brief,
+            verification: verification,
+            earliestPublishedAt: earliestPublishedAt,
+            originalSource: originalSource.map {
+                $0.model(dataTruth: dataTruthByGroup[$0.group] ?? .cached)
+            },
+            items: items.map { $0.model(dataTruth: dataTruthByGroup[$0.group] ?? .cached) },
+            score: score,
+            regionalExplanation: regionalExplanation,
+            coverageExplanation: coverageExplanation,
+            disposition: disposition,
+            dispositionUpdatedAt: dispositionUpdatedAt,
+            dispositionMutationID: dispositionMutationID
+        )
+    }
+}
+
+private struct APINotification: Decodable {
+    let id: UUID
+    let opportunityID: UUID
+    let title: String
+    let delivery: NotificationRecord.Delivery
+    let createdAt: Date
+    let isRead: Bool
+
+    var model: NotificationRecord {
+        NotificationRecord(
+            id: id,
+            opportunityID: opportunityID,
+            title: title,
+            delivery: delivery,
+            createdAt: createdAt,
+            isRead: isRead
+        )
+    }
 }
 
 private let apiEncoder: JSONEncoder = {

@@ -1,0 +1,10 @@
+.panel { display: grid; gap: 1rem; margin-top: 1.5rem; padding: 1.25rem; border: 1px solid var(--line, #d9d6ce); background: var(--surface, #fffdf8); }
+.panel h2 { margin: .2rem 0; }
+.panel p { margin: 0; }
+.form { display: grid; gap: .45rem; max-width: 38rem; }
+.controls { display: flex; gap: .5rem; }
+.controls input { flex: 1; min-width: 0; }
+.message, .empty { color: var(--muted, #625f59); }
+.list { display: grid; gap: .5rem; margin: 0; padding: 0; list-style: none; }
+.list li { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding-top: .5rem; border-top: 1px solid var(--line, #d9d6ce); }
+@media (max-width: 560px) { .controls { flex-direction: column; } .controls button { width: 100%; } }

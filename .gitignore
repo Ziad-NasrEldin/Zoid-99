@@ -2,9 +2,13 @@
 .swiftpm/
 DerivedData/
 *.xcuserstate
+.DS_Store
+node_modules/
 backend/node_modules/
 backend/dist/
 backend/.env
 backend/.env.production
 credentials.env
 .env
+deploy/zoid99/.env.production
+deploy/zoid99/secrets/

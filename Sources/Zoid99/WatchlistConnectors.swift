@@ -119,7 +119,7 @@ enum WatchlistConnectorFactory {
     static func connectors(
         for entries: [WatchlistEntry],
         environment: [String: String],
-        credentialStore: any CredentialStoring = KeychainCredentialStore()
+        credentialStore: any CredentialStoring = InMemoryCredentialStore()
     ) -> [GroupedSourceConnector] {
         let plan = WatchlistConnectorPlan(entries: entries)
         let storedYouTube = try? credentialStore.credential(provider: .youtube)

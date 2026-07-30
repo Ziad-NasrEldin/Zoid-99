@@ -9,15 +9,32 @@ protocol ResearchPersistence: Sendable {
     func save(_ state: ResearchState) throws
 }
 
+struct PreferenceSyncState: Codable, Equatable, Sendable {
+    let pendingPatch: ServerPreferencePatch
+    let etag: String?
+    let idempotencyKey: String?
+
+    init(pendingPatch: ServerPreferencePatch, etag: String?, idempotencyKey: String? = nil) {
+        self.pendingPatch = pendingPatch
+        self.etag = etag
+        self.idempotencyKey = idempotencyKey
+    }
+}
+
+protocol PreferenceSyncStatePersistence: Sendable {
+    func loadPreferenceSyncState() throws -> PreferenceSyncState?
+    func savePreferenceSyncState(_ state: PreferenceSyncState) throws
+}
+
 struct PersistenceDocument: Codable, Sendable {
-    static let currentSchemaVersion = 3
+    static let currentSchemaVersion = 4
 
     let schemaVersion: Int
     let savedAt: Date
     let state: ResearchState
 }
 
-struct JSONResearchPersistence: ResearchPersistence, Sendable {
+struct JSONResearchPersistence: ResearchPersistence, PreferenceSyncStatePersistence, Sendable {
     let fileURL: URL
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
@@ -46,7 +63,7 @@ struct JSONResearchPersistence: ResearchPersistence, Sendable {
         let data = try Data(contentsOf: fileURL)
         let version = try decoder.decode(SchemaHeader.self, from: data).schemaVersion
         switch version {
-        case PersistenceDocument.currentSchemaVersion, 2:
+        case PersistenceDocument.currentSchemaVersion, 3, 2:
             return try decoder.decode(PersistenceDocument.self, from: data).state
         case 1:
             return try migrateV1(decoder.decode(PersistenceDocumentV1.self, from: data))
@@ -65,6 +82,23 @@ struct JSONResearchPersistence: ResearchPersistence, Sendable {
         )
         let data = try encoder.encode(document)
         try data.write(to: fileURL, options: [.atomic, .completeFileProtection])
+    }
+
+    func loadPreferenceSyncState() throws -> PreferenceSyncState? {
+        let url = preferenceSyncFileURL
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return try decoder.decode(PreferenceSyncState.self, from: Data(contentsOf: url))
+    }
+
+    func savePreferenceSyncState(_ state: PreferenceSyncState) throws {
+        let directory = fileURL.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let data = try encoder.encode(state)
+        try data.write(to: preferenceSyncFileURL, options: [.atomic, .completeFileProtection])
+    }
+
+    private var preferenceSyncFileURL: URL {
+        fileURL.deletingLastPathComponent().appendingPathComponent("preferences-sync.json")
     }
 
     private func migrateV1(_ document: PersistenceDocumentV1) -> ResearchState {

@@ -1,0 +1,9 @@
+{
+  "refreshMinutes": 30,
+  "notificationsEnabled": false,
+  "digestHour": 19,
+  "quietHours": { "enabled": true, "start": "22:30", "end": "08:15" },
+  "locale": "en",
+  "timeZone": "Africa/Cairo",
+  "updatedAt": "2026-07-28T14:00:00.000Z"
+}

@@ -142,7 +142,7 @@ Content Studio, Content Calendar, and Analytics Coach are not part of this MVP.
 - Use one AI analysis provider for clustering support, concise summaries, question grouping, language detection, and regional relevance.
 - Require structured outputs from AI analysis and retain the supporting Source Items.
 - Treat AI analysis as interpretation rather than factual evidence.
-- Store service credentials in secure server configuration and user account credentials through OAuth and macOS Keychain where applicable.
+- Store service credentials in secure server configuration and user account credentials through OAuth or local app preferences where applicable.
 - Deliver immediate alerts for high-priority Opportunities and digest lower-priority items.
 - Use native macOS notifications.
 - Support save, watch, dismiss, and mute actions.

@@ -15,7 +15,7 @@ The release scripts do not store Apple credentials, certificate material, or not
 - Release entitlements: no special entitlements
 
 The empty entitlement set is intentional.
-The current product uses outbound networking, local Application Support storage, Keychain access, and user-approved notifications, none of which needs a special entitlement for a directly distributed macOS application.
+The current product uses outbound networking, local Application Support storage, local app preferences, and user-approved notifications, none of which needs a special entitlement for a directly distributed macOS application.
 App Sandbox is not enabled because enabling it later would change the application container and local persistence location.
 
 ## Reproducible unsigned build
@@ -46,13 +46,11 @@ The release owner must provide these outside the repository:
 
 - An active Apple Developer Program membership.
 - A registered App ID matching `com.ziadnasreldin.zoid99`.
-- A `Developer ID Application` certificate installed in the signing Keychain.
+- A `Developer ID Application` certificate installed for local codesigning.
 - The exact certificate name in `ZOID99_SIGNING_IDENTITY`.
-- An App Store Connect issuer ID and API key, or an Apple ID app-specific password.
-- A `notarytool` Keychain profile created locally and named in `ZOID99_NOTARY_PROFILE`.
+- An App Store Connect issuer ID, API key ID, and API key file.
 
-Create the local notary profile once with Apple's `xcrun notarytool store-credentials` command.
-Do not put its password, private key, or exported certificate in this repository.
+Do not put the private key or exported certificate in this repository.
 
 ## Sign, harden, and notarize
 
@@ -60,7 +58,9 @@ Start from a verified unsigned application.
 
 ```sh
 export ZOID99_SIGNING_IDENTITY="Developer ID Application: Legal Name (TEAMID)"
-export ZOID99_NOTARY_PROFILE="zoid99-notary"
+export ZOID99_NOTARY_KEY="/secure/path/AuthKey_XXXXXXXXXX.p8"
+export ZOID99_NOTARY_KEY_ID="XXXXXXXXXX"
+export ZOID99_NOTARY_ISSUER="00000000-0000-0000-0000-000000000000"
 ./scripts/sign-and-notarize.sh ".build/release-artifacts/Zoid 99.app"
 ```
 

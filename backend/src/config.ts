@@ -13,6 +13,7 @@ const environmentSchema = z.object({
     message: "DATABASE_URL must use postgres:// or postgresql://",
   }),
   ZOID99_API_TOKEN: z.string().min(32),
+  ZOID99_OPERATOR_PASSWORD: z.string().min(8).max(512).optional(),
   SECRETS_ENCRYPTION_KEY: z.string().transform((value, context) => {
     const key = Buffer.from(value, "base64");
     if (key.length !== 32 || key.toString("base64").replace(/=+$/, "") !== value.replace(/=+$/, "")) {
@@ -34,6 +35,13 @@ const environmentSchema = z.object({
         code: "custom",
         path: ["PUBLIC_BASE_URL"],
         message: "PUBLIC_BASE_URL must use HTTPS in production",
+      });
+    }
+    if (!environment.ZOID99_OPERATOR_PASSWORD) {
+      context.addIssue({
+        code: "custom",
+        path: ["ZOID99_OPERATOR_PASSWORD"],
+        message: "ZOID99_OPERATOR_PASSWORD is required in production",
       });
     }
     if (
@@ -69,6 +77,7 @@ export type AppConfig = {
   collectionIntervalSeconds: number;
   databaseUrl: string;
   apiToken: string;
+  operatorPassword: string | undefined;
   encryptionKey: Buffer;
   authenticationKeys: string[];
 };
@@ -98,6 +107,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv): AppConfig {
     collectionIntervalSeconds: parsed.data.COLLECTION_INTERVAL_SECONDS,
     databaseUrl: parsed.data.DATABASE_URL,
     apiToken: parsed.data.ZOID99_API_TOKEN,
+    operatorPassword: parsed.data.ZOID99_OPERATOR_PASSWORD,
     encryptionKey: parsed.data.SECRETS_ENCRYPTION_KEY,
   };
   return {

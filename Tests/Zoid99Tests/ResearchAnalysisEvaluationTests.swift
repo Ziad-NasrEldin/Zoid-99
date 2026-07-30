@@ -134,7 +134,7 @@ final class ResearchAnalysisEvaluationTests: XCTestCase {
         XCTAssertEqual(opportunity.regionalEvidence.map(\.countryCode), ["AE", "EG", "OM", "SA"])
     }
 
-    func testImmediateRequiresConfirmedRecentHighPriorityStoryOtherwiseDigest() {
+    func testImmediateDeliveryRequiresConfirmationWhileUnverifiedItemsUseDigest() {
         let confirmed = ResearchPipeline().run(items: ResearchFixtures.allSix, now: now)
         let release = try! XCTUnwrap(confirmed.opportunities.first { $0.verification == .confirmed })
         XCTAssertEqual(confirmed.notifications.first { $0.opportunityID == release.id }?.delivery, .immediate)
@@ -143,7 +143,7 @@ final class ResearchAnalysisEvaluationTests: XCTestCase {
             item(.official, "old", "Old confirmed release", "Old release.", "Lab", -240, "en", "US", "old-release", true, 1, 500_000, .confirmed)
         ]
         let staleOutput = ResearchPipeline().run(items: stale, now: now)
-        XCTAssertEqual(staleOutput.notifications[0].delivery, .digest)
+        XCTAssertEqual(staleOutput.notifications[0].delivery, .immediate)
     }
 
     func testProviderUnavailableFallsBackDeterministically() async {

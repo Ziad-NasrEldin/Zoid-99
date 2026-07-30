@@ -1,5 +1,4 @@
 import Foundation
-import Security
 
 enum DiscordWebhookError: Error, Equatable, LocalizedError {
     case invalidURL
@@ -45,7 +44,7 @@ enum DiscordWebhookValidator {
     }
 
     static func redactedDescription(configured: Bool) -> String {
-        configured ? "Saved in macOS Keychain - URL hidden" : "Not configured"
+        configured ? "Saved for this live session - URL hidden" : "Not configured"
     }
 }
 
@@ -56,67 +55,32 @@ protocol DiscordWebhookStoring: Sendable {
     func removeWebhook() throws
 }
 
-struct KeychainDiscordWebhookStore: DiscordWebhookStoring {
-    static let service = "com.ziadnasreldin.zoid99.discord"
-    static let account = "notification-webhook"
+final class InMemoryDiscordWebhookStore: DiscordWebhookStoring, @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: String?
 
     func containsWebhook() throws -> Bool {
-        var query = baseQuery
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-        query[kSecReturnData as String] = false
-        let status = SecItemCopyMatching(query as CFDictionary, nil)
-        if status == errSecSuccess { return true }
-        if status == errSecItemNotFound { return false }
-        throw CredentialStoreError.unexpectedStatus(status)
+        lock.lock()
+        defer { lock.unlock() }
+        return value != nil
     }
 
     func webhook() throws -> String? {
-        var query = baseQuery
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-        query[kSecReturnData as String] = true
-        var item: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
-        if status == errSecItemNotFound { return nil }
-        guard status == errSecSuccess, let data = item as? Data else {
-            throw CredentialStoreError.unexpectedStatus(status)
-        }
-        return String(data: data, encoding: .utf8)
+        lock.lock()
+        defer { lock.unlock() }
+        return value
     }
 
     func setWebhook(_ value: String) throws {
-        let data = Data(value.utf8)
-        let status = SecItemCopyMatching(baseQuery as CFDictionary, nil)
-        if status == errSecSuccess {
-            let updateStatus = SecItemUpdate(
-                baseQuery as CFDictionary,
-                [kSecValueData as String: data] as CFDictionary
-            )
-            guard updateStatus == errSecSuccess else {
-                throw CredentialStoreError.unexpectedStatus(updateStatus)
-            }
-            return
-        }
-        guard status == errSecItemNotFound else { throw CredentialStoreError.unexpectedStatus(status) }
-        var item = baseQuery
-        item[kSecValueData as String] = data
-        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        let addStatus = SecItemAdd(item as CFDictionary, nil)
-        guard addStatus == errSecSuccess else { throw CredentialStoreError.unexpectedStatus(addStatus) }
+        lock.lock()
+        defer { lock.unlock() }
+        self.value = value
     }
 
     func removeWebhook() throws {
-        let status = SecItemDelete(baseQuery as CFDictionary)
-        guard status == errSecSuccess || status == errSecItemNotFound else {
-            throw CredentialStoreError.unexpectedStatus(status)
-        }
-    }
-
-    private var baseQuery: [String: Any] {
-        [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Self.service,
-            kSecAttrAccount as String: Self.account,
-        ]
+        lock.lock()
+        defer { lock.unlock() }
+        value = nil
     }
 }
 
@@ -194,7 +158,7 @@ actor DiscordNotificationService: DiscordNotificationServicing {
     private let maximumAttempts: Int
 
     init(
-        store: any DiscordWebhookStoring = KeychainDiscordWebhookStore(),
+        store: any DiscordWebhookStoring = InMemoryDiscordWebhookStore(),
         transport: any HTTPTransport = URLSessionHTTPTransport(),
         maximumAttempts: Int = 3,
         sleeper: @escaping Sleeper = { try await Task.sleep(for: .seconds($0)) }

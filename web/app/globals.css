@@ -1,0 +1,774 @@
+:root {
+  --ink: #0d0a0a;
+  --paper: #ffffff;
+  --soft-paper: #fafafa;
+  --mist: #f5f5f5;
+  --pale-rule: #ededed;
+  --rule: #e0e0e0;
+  --muted-ink: #545554;
+  --seal: #c23a2e;
+  --seal-deep: #8f211a;
+  --seal-wash: #f5e5e3;
+  --healthy: #2f3a2f;
+  --desktop-rail-width: 240px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--soft-paper);
+}
+
+body {
+  margin: 0;
+  color: var(--ink);
+  background: var(--soft-paper);
+  font-family: "Hiragino Mincho ProN", "Yu Mincho", "Times New Roman", Georgia, serif;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+a {
+  color: inherit;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button {
+  color: inherit;
+  font: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--seal);
+  outline-offset: 3px;
+}
+
+.skip-link {
+  position: fixed;
+  z-index: 10;
+  top: 8px;
+  left: 8px;
+  padding: 8px 12px;
+  color: var(--paper);
+  background: var(--ink);
+  transform: translateY(-160%);
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+}
+
+.app-shell {
+  display: flex;
+  min-height: 100vh;
+  padding-left: var(--desktop-rail-width);
+}
+
+.desktop-rail {
+  display: flex;
+  position: fixed;
+  z-index: 5;
+  inset: 0 auto 0 0;
+  width: var(--desktop-rail-width);
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 28px 20px 20px;
+  border-right: 1px solid var(--rule);
+  background: var(--paper);
+}
+
+.brand-lockup {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 48px;
+}
+
+.brand-mark {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border: 1px solid var(--ink);
+  font-family: "Times New Roman", Georgia, serif;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-decoration: none;
+}
+
+.brand-name,
+.brand-caption,
+.rail-label,
+.page-eyebrow,
+.page-state,
+.status-label,
+.empty-eyebrow,
+.ledger-columns,
+.ledger-count,
+.more-navigation-heading {
+  margin: 0;
+  font-size: 10px;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.brand-name {
+  font-weight: 700;
+}
+
+.brand-caption {
+  color: var(--muted-ink);
+  font-size: 9px;
+  letter-spacing: 0;
+}
+
+.rail-section + .rail-section {
+  margin-top: 34px;
+}
+
+.rail-label {
+  margin-bottom: 9px;
+  color: var(--muted-ink);
+}
+
+.navigation-list {
+  display: grid;
+  gap: 2px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.navigation-link {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  gap: 10px;
+  padding: 8px 10px;
+  border-left: 2px solid transparent;
+  color: var(--muted-ink);
+  text-decoration: none;
+}
+
+.navigation-link:hover,
+.navigation-link.is-current {
+  color: var(--ink);
+  background: var(--mist);
+}
+
+.navigation-link.is-current {
+  border-left-color: var(--seal);
+  font-weight: 700;
+}
+
+.navigation-icon {
+  flex: 0 0 auto;
+  color: var(--muted-ink);
+}
+
+.navigation-link.is-current .navigation-icon {
+  color: var(--seal);
+}
+
+.rail-footer {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0 8px;
+  padding-top: 16px;
+  margin-top: auto;
+  border-top: 1px solid var(--rule);
+  font-size: 11px;
+}
+
+.rail-footer .muted {
+  grid-column: 2;
+  color: var(--muted-ink);
+  font-size: 10px;
+}
+
+.logout-button {
+  display: inline-flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 8px 10px;
+  margin-top: 14px;
+  border: 1px solid var(--rule);
+  border-radius: 0;
+  background: var(--paper);
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.logout-button:hover {
+  border-color: var(--ink);
+  background: var(--mist);
+}
+
+.logout-button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.logout-button.is-compact {
+  width: 100%;
+  margin-top: 12px;
+}
+
+.operator-login-shell {
+  display: grid;
+  grid-template-rows: 54px minmax(0, 1fr) 42px;
+  min-height: 100dvh;
+  color: var(--ink);
+  background: var(--paper);
+}
+
+.operator-login-mast,
+.operator-login-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 0 clamp(18px, 3vw, 42px);
+  font-size: 9px;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.operator-login-mast {
+  border-bottom: 1px solid var(--ink);
+  color: var(--paper);
+  background: var(--ink);
+}
+
+.operator-login-wordmark {
+  font-family: "Times New Roman", Georgia, serif;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.operator-login-stage {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.85fr) minmax(420px, 1.15fr);
+  min-height: 0;
+}
+
+.operator-login-brand {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 18px;
+  padding: clamp(28px, 5vw, 72px);
+  border-right: 1px solid var(--ink);
+  background: var(--mist);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.operator-login-index {
+  font-family: "Times New Roman", Georgia, serif;
+  font-size: clamp(128px, 20vw, 300px);
+  line-height: 0.68;
+}
+
+.operator-login-rule {
+  display: block;
+  width: 100%;
+  height: 1px;
+  background: var(--ink);
+}
+
+.operator-login-panel {
+  align-self: center;
+  width: min(520px, calc(100% - 48px));
+  padding: clamp(28px, 5vw, 58px);
+  margin: 32px auto;
+  border: 1px solid var(--ink);
+  background: var(--paper);
+}
+
+.operator-login-icon {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  margin-bottom: 28px;
+  border: 1px solid var(--ink);
+  place-items: center;
+}
+
+.operator-login-kicker {
+  margin-bottom: 8px;
+  color: var(--seal-deep);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.operator-login-panel h1 {
+  margin-bottom: 16px;
+  font-size: clamp(44px, 6vw, 70px);
+}
+
+.operator-login-summary {
+  max-width: 360px;
+  margin-bottom: 0;
+  color: var(--muted-ink);
+}
+
+.operator-login-form {
+  display: grid;
+  gap: 10px;
+  margin-top: 32px;
+}
+
+.operator-login-form label {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.operator-password-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  border: 1px solid var(--ink);
+  background: var(--paper);
+}
+
+.operator-password-field input {
+  width: 100%;
+  min-width: 0;
+  min-height: 46px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 0;
+  color: var(--ink);
+  background: transparent;
+  font: inherit;
+}
+
+.operator-password-field input:focus {
+  outline: 0;
+}
+
+.operator-password-field:focus-within {
+  outline: 2px solid var(--seal);
+  outline-offset: 2px;
+}
+
+.operator-password-toggle {
+  display: grid;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid var(--rule);
+  background: var(--paper);
+  cursor: pointer;
+  place-items: center;
+}
+
+.operator-login-submit {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 48px;
+  padding: 10px 14px;
+  border: 1px solid var(--ink);
+  border-radius: 0;
+  color: var(--paper);
+  background: var(--ink);
+  cursor: pointer;
+}
+
+.operator-login-submit:hover:not(:disabled) {
+  background: var(--seal-deep);
+}
+
+.operator-login-submit:disabled,
+.operator-password-toggle:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.operator-login-error {
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--seal);
+  color: var(--seal-deep);
+  background: var(--seal-wash);
+  font-size: 12px;
+}
+
+.operator-login-footer {
+  border-top: 1px solid var(--ink);
+}
+
+.status-dot {
+  display: block;
+  width: 7px;
+  height: 7px;
+  margin-top: 6px;
+  background: var(--seal);
+}
+
+.main-column {
+  flex: 1;
+  min-width: 0;
+  background: var(--soft-paper);
+}
+
+.shell-status {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 10px clamp(20px, 4vw, 56px);
+  border-bottom: 1px solid var(--rule);
+  color: var(--muted-ink);
+  font-size: 11px;
+}
+
+.status-label {
+  flex: 0 0 auto;
+  color: var(--seal-deep);
+  font-size: 9px;
+}
+
+.workspace-page {
+  max-width: 1240px;
+  padding: clamp(30px, 5vw, 72px) clamp(20px, 4vw, 56px) 100px;
+  margin: 0 auto;
+}
+
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 30px;
+  padding-bottom: 30px;
+  border-bottom: 1px solid var(--ink);
+}
+
+.page-eyebrow,
+.empty-eyebrow {
+  color: var(--seal-deep);
+}
+
+h1,
+h2,
+p {
+  margin-top: 0;
+}
+
+h1 {
+  margin-bottom: 10px;
+  font-family: "Times New Roman", Baskerville, Georgia, serif;
+  font-size: clamp(36px, 5vw, 64px);
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 0.98;
+}
+
+.page-description {
+  max-width: 560px;
+  margin-bottom: 0;
+  color: var(--muted-ink);
+  font-size: 15px;
+}
+
+.page-state {
+  flex: 0 0 auto;
+  padding-top: 5px;
+  color: var(--muted-ink);
+  white-space: nowrap;
+}
+
+.ledger {
+  margin-top: 28px;
+  border-top: 1px solid var(--rule);
+  background: var(--paper);
+}
+
+.ledger-heading-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.ledger-heading-row h2 {
+  margin-bottom: 0;
+  font-family: "Times New Roman", Baskerville, Georgia, serif;
+  font-size: 20px;
+  font-weight: 400;
+}
+
+.ledger-count {
+  color: var(--muted-ink);
+}
+
+.ledger-columns {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  padding: 11px 18px;
+  border-bottom: 1px solid var(--pale-rule);
+  color: var(--muted-ink);
+}
+
+.empty-state {
+  display: grid;
+  min-height: 250px;
+  place-content: center;
+  padding: 40px 24px;
+  border-bottom: 1px solid var(--rule);
+  text-align: center;
+}
+
+.empty-state h2 {
+  max-width: 560px;
+  margin-bottom: 8px;
+  font-family: "Times New Roman", Baskerville, Georgia, serif;
+  font-size: 28px;
+  font-weight: 400;
+  line-height: 1.1;
+}
+
+.empty-state > p:last-child {
+  max-width: 520px;
+  margin-bottom: 0;
+  color: var(--muted-ink);
+}
+
+.mobile-topbar,
+.mobile-bottom-nav,
+.more-navigation {
+  display: none;
+}
+
+/*
+ * The desktop rail takes 240px from the available page width.
+ * Below 1024px, keeping it would leave data-heavy screens with less room than
+ * their tablet layouts need, so use the touch navigation shell instead.
+ */
+@media (max-width: 1023px) {
+  .operator-login-shell {
+    grid-template-rows: 50px minmax(0, 1fr) 38px;
+  }
+
+  .operator-login-stage {
+    display: block;
+  }
+
+  .operator-login-brand {
+    display: none;
+  }
+
+  .operator-login-panel {
+    width: calc(100% - 28px);
+    padding: 28px 22px;
+    margin: clamp(32px, 10vh, 80px) auto;
+  }
+
+  .operator-login-panel h1 {
+    font-size: 46px;
+  }
+
+  .operator-login-mast,
+  .operator-login-footer {
+    padding: 0 16px;
+  }
+
+  .app-shell {
+    display: block;
+    padding-left: 0;
+    padding-bottom: 65px;
+  }
+
+  .desktop-rail {
+    display: none;
+  }
+
+  .mobile-topbar {
+    display: flex;
+    position: sticky;
+    z-index: 5;
+    top: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--ink);
+    background: var(--paper);
+  }
+
+  .mobile-brand {
+    font-family: "Times New Roman", Georgia, serif;
+    font-size: 18px;
+    font-weight: 700;
+    text-decoration: none;
+  }
+
+  .mobile-brand span {
+    display: block;
+    color: var(--muted-ink);
+    font-family: inherit;
+    font-size: 9px;
+    font-weight: 400;
+    letter-spacing: 0;
+    text-transform: uppercase;
+  }
+
+  .menu-button,
+  .close-menu {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 8px 10px;
+    border: 1px solid var(--ink);
+    border-radius: 0;
+    background: var(--paper);
+    cursor: pointer;
+    font-size: 11px;
+  }
+
+  .more-navigation {
+    display: block;
+    position: relative;
+    z-index: 4;
+    padding: 15px 16px 18px;
+    border-bottom: 1px solid var(--ink);
+    background: var(--paper);
+  }
+
+  .more-navigation-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 10px;
+    color: var(--muted-ink);
+  }
+
+  .more-navigation .navigation-link {
+    min-height: 44px;
+    padding-left: 4px;
+  }
+
+  .shell-status {
+    display: block;
+    padding: 9px 16px;
+    font-size: 10px;
+  }
+
+  .shell-status .status-label {
+    display: block;
+    margin-bottom: 2px;
+  }
+
+  .workspace-page {
+    padding: 36px 16px 40px;
+  }
+
+  .page-header {
+    display: block;
+    padding-bottom: 22px;
+  }
+
+  .page-state {
+    display: block;
+    padding-top: 15px;
+  }
+
+  h1 {
+    font-size: clamp(42px, 15vw, 58px);
+  }
+
+  .page-description {
+    font-size: 14px;
+  }
+
+  .ledger {
+    margin-top: 20px;
+  }
+
+  .ledger-heading-row,
+  .ledger-columns {
+    padding-right: 13px;
+    padding-left: 13px;
+  }
+
+  .ledger-columns {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: 4px;
+    font-size: 9px;
+  }
+
+  .empty-state {
+    min-height: 290px;
+    padding: 30px 18px;
+  }
+
+  .empty-state h2 {
+    font-size: 25px;
+  }
+
+  .mobile-bottom-nav {
+    display: block;
+    position: fixed;
+    z-index: 6;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    border-top: 1px solid var(--ink);
+    background: var(--paper);
+  }
+
+  .mobile-bottom-nav .navigation-list {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0;
+  }
+
+  .mobile-bottom-nav .navigation-link {
+    display: grid;
+    min-height: 64px;
+    place-content: center;
+    gap: 2px;
+    padding: 7px 2px;
+    border-top: 2px solid transparent;
+    border-left: 0;
+    font-size: 10px;
+    text-align: center;
+  }
+
+  .mobile-bottom-nav .navigation-link.is-current {
+    border-top-color: var(--seal);
+  }
+
+  .mobile-bottom-nav .navigation-icon {
+    margin: 0 auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

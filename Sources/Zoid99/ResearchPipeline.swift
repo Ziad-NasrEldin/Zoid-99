@@ -35,7 +35,7 @@ struct ResearchPipeline: Sendable {
                 id: UUID(),
                 opportunityID: $0.id,
                 title: $0.title,
-                delivery: $0.isHighPriority ? .immediate : .digest,
+                delivery: $0.isImmediateNotificationEligible ? .immediate : .digest,
                 createdAt: now,
                 isRead: false
             )

@@ -184,92 +184,74 @@ struct SumiSelect<Value: Hashable>: View {
     let options: [SumiSelectOption<Value>]
     var accessibilityLabel: String
     var width: CGFloat?
+    var menuID: String?
+    var activeMenuID: Binding<String?>?
 
-    @State private var isOpen = false
+    @State private var localIsOpen = false
     @State private var focusedIndex = 0
 
     private var selectedTitle: String {
         options.first(where: { $0.value == selection })?.title ?? ""
     }
 
-    var body: some View {
-        ZStack(alignment: .topLeading) {
-            Button {
-                focusedIndex = options.firstIndex(where: { $0.value == selection }) ?? 0
-                isOpen.toggle()
-            } label: {
-                HStack(spacing: 8) {
-                    Text(selectedTitle)
-                        .font(SumiFont.body(12))
-                        .lineLimit(1)
-                    Spacer(minLength: 8)
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 8, weight: .semibold))
-                        .rotationEffect(.degrees(isOpen ? 180 : 0))
-                        .animation(SumiMotion(reduceMotion: reduceMotion).stateAnimation, value: isOpen)
-                }
-                .padding(.horizontal, 10)
-                .frame(width: width, alignment: .leading)
-                .frame(minHeight: 34)
-                .background(SumiColor.paper)
-                .overlay(Rectangle().stroke(isOpen ? SumiColor.ink : SumiColor.rule, lineWidth: 1))
-            }
-            .buttonStyle(SumiPressStyle())
-            .accessibilityLabel(accessibilityLabel)
-            .accessibilityValue(selectedTitle)
-            .accessibilityHint("Opens a list of choices")
+    private var isOpen: Bool {
+        guard let menuID, let activeMenuID else { return localIsOpen }
+        return activeMenuID.wrappedValue == menuID
+    }
 
+    private func setOpen(_ isOpen: Bool) {
+        guard let menuID, let activeMenuID else {
+            localIsOpen = isOpen
+            return
+        }
+        activeMenuID.wrappedValue = isOpen ? menuID : nil
+    }
+
+    var body: some View {
+        Button {
+            focusedIndex = options.firstIndex(where: { $0.value == selection }) ?? 0
             if isOpen {
-                VStack(spacing: 0) {
-                    ForEach(Array(options.enumerated()), id: \.element.id) { index, option in
-                        Button {
-                            selection = option.value
-                            isOpen = false
-                        } label: {
-                            HStack(spacing: 9) {
-                                Rectangle()
-                                    .fill(option.value == selection ? SumiColor.seal : Color.clear)
-                                    .frame(width: 2, height: 18)
-                                Text(option.title)
-                                    .font(SumiFont.body(12))
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                if option.value == selection {
-                                    Image(systemName: "checkmark")
-                                        .font(.system(size: 9, weight: .bold))
-                                }
-                            }
-                            .foregroundStyle(option.value == selection ? SumiColor.paper : SumiColor.ink)
-                            .padding(.horizontal, 9)
-                            .frame(minHeight: 32)
-                            .background(
-                                option.value == selection
-                                    ? SumiColor.ink
-                                    : index == focusedIndex ? SumiColor.mist : SumiColor.paper
-                            )
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityAddTraits(option.value == selection ? [.isSelected] : [])
-                    }
-                }
-                .padding(4)
-                .frame(width: width)
-                .background(SumiColor.paper)
-                .overlay(Rectangle().stroke(SumiColor.ink, lineWidth: 1))
-                .shadow(color: SumiColor.ink.opacity(0.16), radius: 8, x: 0, y: 5)
-                .offset(y: 38)
-                .transition(
-                    .asymmetric(
-                        insertion: .opacity.combined(
-                            with: .offset(y: SumiMotion(reduceMotion: reduceMotion).spatialOffset)
-                        ),
-                        removal: .opacity
+                setOpen(false)
+            } else {
+                setOpen(true)
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Text(selectedTitle)
+                    .font(SumiFont.body(12))
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .semibold))
+                    .rotationEffect(.degrees(isOpen ? 180 : 0))
+                    .animation(SumiMotion(reduceMotion: reduceMotion).stateAnimation, value: isOpen)
+            }
+            .padding(.horizontal, 10)
+            .frame(width: width, alignment: .leading)
+            .frame(height: 34)
+            .background(SumiColor.paper)
+            .overlay(Rectangle().stroke(isOpen ? SumiColor.ink : SumiColor.rule, lineWidth: 1))
+        }
+        .buttonStyle(SumiPressStyle())
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityValue(selectedTitle)
+        .accessibilityHint("Opens a list of choices")
+        .overlay(alignment: .topLeading) {
+            if isOpen {
+                selectMenu
+                    .offset(y: 38)
+                    .transition(
+                        .asymmetric(
+                            insertion: .opacity.combined(
+                                with: .offset(y: SumiMotion(reduceMotion: reduceMotion).spatialOffset)
+                            ),
+                            removal: .opacity
+                        )
                     )
-                )
-                .zIndex(100)
+                    .zIndex(100)
             }
         }
-        .fixedSize(horizontal: width != nil, vertical: true)
+        .frame(width: width, height: 34, alignment: .topLeading)
         .zIndex(isOpen ? 100 : 0)
         .animation(SumiMotion(reduceMotion: reduceMotion).opacityAnimation, value: isOpen)
         .onMoveCommand { direction in
@@ -283,16 +265,56 @@ struct SumiSelect<Value: Hashable>: View {
         .onKeyPress(.return) {
             guard isOpen, options.indices.contains(focusedIndex) else { return .ignored }
             selection = options[focusedIndex].value
-            isOpen = false
+            setOpen(false)
             return .handled
         }
         .onKeyPress(.space) {
             guard isOpen, options.indices.contains(focusedIndex) else { return .ignored }
             selection = options[focusedIndex].value
-            isOpen = false
+            setOpen(false)
             return .handled
         }
-        .onExitCommand { isOpen = false }
+        .onExitCommand { setOpen(false) }
+    }
+
+    private var selectMenu: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(options.enumerated()), id: \.element.id) { index, option in
+                Button {
+                    selection = option.value
+                    setOpen(false)
+                } label: {
+                    HStack(spacing: 9) {
+                        Rectangle()
+                            .fill(option.value == selection ? SumiColor.seal : Color.clear)
+                            .frame(width: 2, height: 18)
+                        Text(option.title)
+                            .font(SumiFont.body(12))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        if option.value == selection {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 9, weight: .bold))
+                        }
+                    }
+                    .foregroundStyle(option.value == selection ? SumiColor.paper : SumiColor.ink)
+                    .padding(.horizontal, 9)
+                    .frame(minHeight: 32)
+                    .background(
+                        option.value == selection
+                            ? SumiColor.ink
+                            : index == focusedIndex ? SumiColor.mist : SumiColor.paper
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(option.value == selection ? [.isSelected] : [])
+            }
+        }
+        .padding(4)
+        .frame(width: width)
+        .background(SumiColor.paper)
+        .overlay(Rectangle().stroke(SumiColor.ink, lineWidth: 1))
+        .shadow(color: SumiColor.ink.opacity(0.16), radius: 8, x: 0, y: 5)
     }
 }
 

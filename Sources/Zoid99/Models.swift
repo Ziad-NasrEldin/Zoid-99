@@ -135,6 +135,10 @@ struct Opportunity: Identifiable, Codable, Hashable, Sendable {
     var isHighPriority: Bool {
         score.total >= 75 && score.freshness >= 14 && verification == .confirmed
     }
+
+    var isImmediateNotificationEligible: Bool {
+        verification == .confirmed
+    }
     var researchBrief: ResearchBrief {
         let sortedItems = items.sorted {
             if $0.publishedAt == $1.publishedAt { return $0.externalID < $1.externalID }
@@ -248,6 +252,66 @@ struct MuteRule: Identifiable, Codable, Hashable, Sendable {
     let value: String
     let label: String
     let createdAt: Date
+}
+
+struct SourceBlockRule: Identifiable, Codable, Hashable, Sendable {
+    let id: UUID
+    let domain: String
+    let label: String
+    let createdAt: Date
+    let note: String?
+
+    init(
+        id: UUID = UUID(),
+        domain: String,
+        label: String? = nil,
+        createdAt: Date = .now,
+        note: String? = nil
+    ) {
+        self.id = id
+        self.domain = domain
+        self.label = label ?? domain
+        self.createdAt = createdAt
+        self.note = note
+    }
+}
+
+enum SourceBlocklistValidationError: LocalizedError, Equatable {
+    case invalidDomain
+    case duplicate
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidDomain:
+            "Enter a valid source domain or URL."
+        case .duplicate:
+            "This source is already blocked."
+        }
+    }
+}
+
+enum SourceDomainNormalizer {
+    static func normalizedDomain(from input: String) -> String? {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let candidate = trimmed.contains("://") ? trimmed : "https://\(trimmed)"
+        guard let url = URL(string: candidate),
+              let host = url.host(percentEncoded: false) else { return nil }
+
+        let normalized = host.lowercased()
+            .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        let withoutWWW = normalized.hasPrefix("www.") ? String(normalized.dropFirst(4)) : normalized
+        guard withoutWWW.contains("."),
+              withoutWWW.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "." || $0 == "-" }),
+              !withoutWWW.split(separator: ".").contains(where: \.isEmpty)
+        else { return nil }
+        return withoutWWW
+    }
+
+    static func normalizedDomain(from url: URL) -> String? {
+        normalizedDomain(from: url.absoluteString)
+    }
 }
 
 enum NotificationPermissionState: String, Codable, Sendable {
@@ -422,6 +486,7 @@ struct ResearchState: Codable, Hashable, Sendable {
     var watchlistNeedsSync: Bool? = false
     var savedOpportunityIDs: Set<UUID>? = []
     var muteRules: [MuteRule]? = []
+    var sourceBlocklist: [SourceBlockRule]? = []
 
     static let empty = ResearchState(
         sourceItems: [],
@@ -437,7 +502,8 @@ struct ResearchState: Codable, Hashable, Sendable {
         pendingDispositionMutations: [],
         watchlistNeedsSync: false,
         savedOpportunityIDs: [],
-        muteRules: []
+        muteRules: [],
+        sourceBlocklist: []
     )
 }
 

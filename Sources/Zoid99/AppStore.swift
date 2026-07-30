@@ -14,6 +14,7 @@ final class AppStore: ObservableObject {
     @Published var watchlist: [WatchlistEntry] = []
     @Published private(set) var savedOpportunityIDs: Set<UUID> = []
     @Published private(set) var muteRules: [MuteRule] = []
+    @Published private(set) var sourceBlocklist: [SourceBlockRule] = []
     @Published var radarSource: SourceGroup?
     @Published var radarVerification: VerificationState?
     @Published var radarTopic = ""
@@ -36,6 +37,7 @@ final class AppStore: ObservableObject {
     @Published var isRefreshing = false
     @Published var isResearchingTopic = false
     @Published var watchlistError: String?
+    @Published var sourceBlocklistError: String?
     @Published private(set) var dismissedOpportunityForUndo: Opportunity?
     @Published private(set) var watchlistSyncState = "Saved locally"
     @Published private(set) var dataTruth: DataTruth = .missing
@@ -51,6 +53,7 @@ final class AppStore: ObservableObject {
     private let sync: any ResearchSyncing
     private let dispositionSync: any OpportunityDispositionSyncing
     private let watchlistSync: any WatchlistSyncing
+    private let preferenceSync: any PreferenceSyncing
     private let now: @Sendable () -> Date
     private let connectionService: any ProviderConnectionServicing
     private let notificationDelivery: any NotificationDelivering
@@ -59,12 +62,19 @@ final class AppStore: ObservableObject {
     private var scheduledRefreshTask: Task<Void, Never>?
     private var isSyncingWatchlist = false
     private var watchlistNeedsSync = false
+    private var stateNeedsPersistenceAfterLoad = false
+    private var pendingPreferencePatch = ServerPreferencePatch()
+    private var preferenceETag: String?
+    private var preferenceIdempotencyKey: String?
+    private var preferenceRevision = 0
+    private var isSyncingPreferences = false
 
     init(
         persistence: any ResearchPersistence = JSONResearchPersistence.production(),
         sync: any ResearchSyncing = ProductionResearchSync(),
         dispositionSync: any OpportunityDispositionSyncing = OpportunityDispositionSyncFactory.production(),
         watchlistSync: any WatchlistSyncing = WatchlistSyncFactory.production(),
+        preferenceSync: any PreferenceSyncing = PreferenceSyncFactory.production(),
         now: @escaping @Sendable () -> Date = { .now },
         connectionService: any ProviderConnectionServicing = LocalProviderConnectionService(),
         notificationDelivery: any NotificationDelivering = UnavailableNotificationDelivery(),
@@ -76,6 +86,7 @@ final class AppStore: ObservableObject {
         self.sync = sync
         self.dispositionSync = dispositionSync
         self.watchlistSync = watchlistSync
+        self.preferenceSync = preferenceSync
         self.now = now
         self.connectionService = connectionService
         self.notificationDelivery = notificationDelivery
@@ -87,7 +98,20 @@ final class AppStore: ObservableObject {
         do {
             if let stored = try persistence.load() {
                 applyStoredState(stored)
+                if let preferencePersistence = persistence as? any PreferenceSyncStatePersistence,
+                   let storedPreferenceState = try preferencePersistence.loadPreferenceSyncState() {
+                    pendingPreferencePatch = storedPreferenceState.pendingPatch
+                    preferenceETag = storedPreferenceState.etag
+                    preferenceIdempotencyKey = storedPreferenceState.idempotencyKey
+                }
                 statusMessage = "Offline cache loaded"
+                if stateNeedsPersistenceAfterLoad {
+                    do {
+                        try persist()
+                    } catch {
+                        statusMessage = "Offline cache loaded - blocklist changes cannot be saved"
+                    }
+                }
             } else if loadDemoDataWhenEmpty {
                 applyDemoState()
                 statusMessage = "Demo data loaded"
@@ -274,8 +298,20 @@ final class AppStore: ObservableObject {
         isRefreshing = true
         statusMessage = "Synchronizing"
         let existingOpportunityIDs = Set(opportunities.map(\.id))
+        await synchronizePreferences()
         await synchronizeWatchlist()
-        let results = await sync.synchronize(watchlist: watchlist)
+        let results = (
+            await sync.synchronize(
+                watchlist: watchlist,
+                seed: ResearchSyncSeed(
+                    sourceItems: sourceItems,
+                    opportunities: opportunities,
+                    sourceHealth: sourceHealth,
+                    notifications: notifications,
+                    sourceBlocklist: sourceBlocklist
+                )
+            )
+        ).map(sanitizingBlockedSources)
         let liveItems = results.flatMap { result in
             result.items.map {
                 var item = $0
@@ -284,11 +320,21 @@ final class AppStore: ObservableObject {
             }
         }
 
-        if !liveItems.isEmpty {
+        if let canonicalOpportunities = results.compactMap(\.canonicalOpportunities).first {
+            sourceItems = canonicalOpportunities.flatMap(\.items)
+            opportunities = canonicalOpportunities
+            comments = pipeline.run(items: sourceItems).comments
+            if let canonicalNotifications = results.compactMap(\.canonicalNotifications).first {
+                notifications = canonicalNotifications
+            }
+            applySourceBlocklist()
+            lastSuccessfulSyncAt = results.map(\.collectedAt).max()
+        } else if !liveItems.isEmpty {
             sourceItems = liveItems
             let output = pipeline.run(items: liveItems)
             opportunities = output.opportunities.map(applyingStoredDisposition)
             comments = output.comments
+            applySourceBlocklist()
             await processNotifications(output.notifications)
             await processDiscordNotifications(
                 opportunities.filter { !existingOpportunityIDs.contains($0.id) }
@@ -324,6 +370,56 @@ final class AppStore: ObservableObject {
         isRefreshing = false
     }
 
+    @discardableResult
+    func blockSourceDomain(_ input: String, note: String? = nil) -> Bool {
+        guard let domain = SourceDomainNormalizer.normalizedDomain(from: input) else {
+            sourceBlocklistError = SourceBlocklistValidationError.invalidDomain.localizedDescription
+            statusMessage = "Source blocklist not changed"
+            return false
+        }
+        guard !sourceBlocklist.contains(where: { $0.domain.caseInsensitiveCompare(domain) == .orderedSame }) else {
+            sourceBlocklistError = SourceBlocklistValidationError.duplicate.localizedDescription
+            statusMessage = "Source blocklist not changed"
+            return false
+        }
+        sourceBlocklist.append(
+            SourceBlockRule(
+                domain: domain,
+                label: domain,
+                createdAt: now(),
+                note: note?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            )
+        )
+        sourceBlocklist.sort { $0.domain.localizedCaseInsensitiveCompare($1.domain) == .orderedAscending }
+        sourceBlocklistError = nil
+        let removedCount = applySourceBlocklist()
+        statusMessage = removedCount == 0
+            ? "Blocked \(domain)"
+            : "Blocked \(domain) and removed \(removedCount) source \(removedCount == 1 ? "item" : "items")"
+        persistReportingFailure()
+        return true
+    }
+
+    @discardableResult
+    func unblockSourceDomain(id: UUID) -> Bool {
+        guard let rule = sourceBlocklist.first(where: { $0.id == id }) else {
+            statusMessage = "Blocked source unavailable - no changes made"
+            return false
+        }
+        sourceBlocklist.removeAll { $0.id == id }
+        sourceBlocklistError = nil
+        statusMessage = "Unblocked \(rule.domain)"
+        persistReportingFailure()
+        return true
+    }
+
+    func isSourceBlocked(_ item: SourceItem) -> Bool {
+        guard let domain = SourceDomainNormalizer.normalizedDomain(from: item.url) else { return false }
+        return sourceBlocklist.contains { rule in
+            domain == rule.domain || domain.hasSuffix(".\(rule.domain)")
+        }
+    }
+
     func researchTopicAcrossConnectedSources(_ query: String) async {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !isResearchingTopic else { return }
@@ -331,7 +427,7 @@ final class AppStore: ObservableObject {
         statusMessage = "Researching topic across connected sources"
         let existingOpportunityIDs = Set(opportunities.map(\.id))
         await synchronizeWatchlist()
-        let results = await sync.researchTopic(trimmed, watchlist: watchlist)
+        let results = (await sync.researchTopic(trimmed, watchlist: watchlist)).map(sanitizingBlockedSources)
         mergeResearchResults(results)
         await processDiscordNotifications(
             opportunities.filter { !existingOpportunityIDs.contains($0.id) }
@@ -689,6 +785,7 @@ final class AppStore: ObservableObject {
     func setRefreshMinutes(_ minutes: Int) {
         refreshMinutes = min(60, max(5, minutes))
         settings.refreshMinutes = refreshMinutes
+        queuePreferenceChange(ServerPreferencePatch(refreshMinutes: refreshMinutes))
         persistReportingFailure()
     }
 
@@ -725,6 +822,7 @@ final class AppStore: ObservableObject {
             notificationsEnabled = notificationPermission == .authorized || notificationPermission == .provisional
             settings.notificationPermission = notificationPermission
             settings.notificationsEnabled = notificationsEnabled
+            queuePreferenceChange(ServerPreferencePatch(notificationsEnabled: notificationsEnabled))
             statusMessage = notificationPermission == .authorized || notificationPermission == .provisional
                 ? "Notifications allowed"
                 : "Notifications blocked by macOS"
@@ -776,12 +874,14 @@ final class AppStore: ObservableObject {
         statusMessage = notificationsEnabled
             ? "Notifications enabled"
             : enabled ? "Allow notifications in macOS first" : "Notifications disabled"
+        queuePreferenceChange(ServerPreferencePatch(notificationsEnabled: notificationsEnabled))
         persistReportingFailure()
     }
 
     func setDigestHour(_ hour: Int) {
         digestHour = min(23, max(0, hour))
         settings.digestHour = digestHour
+        queuePreferenceChange(ServerPreferencePatch(digestHour: digestHour))
         persistReportingFailure()
     }
 
@@ -798,7 +898,7 @@ final class AppStore: ObservableObject {
             try await discordService.configure(value)
             discordConfigured = true
             discordStatus = discordEnabled ? .ready : .disabled
-            statusMessage = "Discord webhook validated and saved in macOS Keychain"
+            statusMessage = "Discord webhook validated and saved in local app preferences"
         } catch {
             discordConfigured = await discordService.isConfigured()
             discordStatus = .failed(
@@ -816,10 +916,10 @@ final class AppStore: ObservableObject {
             discordEnabled = false
             settings.discordEnabled = false
             discordStatus = .notConfigured
-            statusMessage = "Discord webhook removed from macOS Keychain"
+            statusMessage = "Discord webhook removed from local app preferences"
             persistReportingFailure()
         } catch {
-            discordStatus = .failed("The Discord webhook could not be removed from macOS Keychain.")
+            discordStatus = .failed("The Discord webhook could not be removed from local app preferences.")
         }
     }
 
@@ -881,6 +981,7 @@ final class AppStore: ObservableObject {
     }
 
     private func applyDemoState() {
+        sourceBlocklist = seededSourceBlocklist([])
         let output = pipeline.run(items: ResearchFixtures.allSix, now: ResearchFixtures.now)
         sourceItems = output.normalizedItems
         opportunities = output.opportunities
@@ -904,9 +1005,13 @@ final class AppStore: ObservableObject {
         }
         providerConnections = defaultProviderConnections()
         dataTruth = .fixture
+        applySourceBlocklist()
     }
 
     private func applyStoredState(_ stored: ResearchState) {
+        let storedBlocklist = stored.sourceBlocklist ?? []
+        sourceBlocklist = seededSourceBlocklist(storedBlocklist)
+        stateNeedsPersistenceAfterLoad = sourceBlocklist.count != storedBlocklist.count
         sourceItems = stored.sourceItems.map {
             var item = $0
             if item.dataTruth == .live { item.dataTruth = .cached }
@@ -934,11 +1039,21 @@ final class AppStore: ObservableObject {
         sourceHealth = stored.sourceHealth.map {
             var health = $0
             if health.dataTruth == .live { health.dataTruth = .cached }
+            health.evidence = sanitizedStoredEvidence(health.evidence)
             return health
         }
         providerConnections = defaultProviderConnections()
         updateProviderConnectionsFromSourceHealth()
-        sourceHealthHistory = stored.sourceHealthHistory
+        sourceHealthHistory = stored.sourceHealthHistory.map {
+            SourceHealthRecord(
+                id: $0.id,
+                group: $0.group,
+                state: $0.state,
+                dataTruth: $0.dataTruth,
+                recordedAt: $0.recordedAt,
+                evidence: sanitizedStoredEvidence($0.evidence)
+            )
+        }
         watchlist = stored.watchlist
         var migratedWatchlist = false
         for opportunity in stored.opportunities {
@@ -988,6 +1103,9 @@ final class AppStore: ObservableObject {
         applyNotificationSettings()
         lastSuccessfulSyncAt = stored.lastSuccessfulSyncAt
         dataTruth = aggregateTruth(sourceHealth.map(\.dataTruth))
+        if applySourceBlocklist() > 0 {
+            stateNeedsPersistenceAfterLoad = true
+        }
     }
 
     private func applyingStoredDisposition(_ opportunity: Opportunity) -> Opportunity {
@@ -1058,7 +1176,8 @@ final class AppStore: ObservableObject {
     }
 
     private func mergeResearchResults(_ results: [SourceSyncResult]) {
-        let collectedItems = results.flatMap { result in
+        let sanitizedResults = results.map(sanitizingBlockedSources)
+        let collectedItems = sanitizedResults.flatMap { result in
             result.items.map {
                 var item = $0
                 item.dataTruth = result.dataTruth
@@ -1080,9 +1199,10 @@ final class AppStore: ObservableObject {
             let output = pipeline.run(items: sourceItems)
             opportunities = output.opportunities.map(applyingStoredDisposition)
             comments = output.comments
-            lastSuccessfulSyncAt = results.map(\.collectedAt).max()
+            applySourceBlocklist()
+            lastSuccessfulSyncAt = sanitizedResults.map(\.collectedAt).max()
         }
-        let healthByGroup = Dictionary(uniqueKeysWithValues: results.map { ($0.group, $0) })
+        let healthByGroup = Dictionary(uniqueKeysWithValues: sanitizedResults.map { ($0.group, $0) })
         sourceHealth = SourceGroup.allCases.map { group in
             guard let result = healthByGroup[group] else {
                 return sourceHealth.first(where: { $0.group == group }) ?? SourceHealth(
@@ -1104,8 +1224,101 @@ final class AppStore: ObservableObject {
             )
         }
         updateProviderConnectionsFromSourceHealth()
-        recordSourceHealth(results)
+        recordSourceHealth(sanitizedResults)
         dataTruth = aggregateTruth(sourceHealth.map(\.dataTruth))
+    }
+
+    private func sanitizingBlockedSources(_ result: SourceSyncResult) -> SourceSyncResult {
+        let filteredItems = result.items.filter { !isSourceBlocked($0) }
+        guard filteredItems.count != result.items.count else { return result }
+        let evidence = filteredItems.isEmpty
+            ? "All collected \(result.group.rawValue) items are blocked by the source blocklist."
+            : "\(filteredItems.count) \(result.group.rawValue) item\(filteredItems.count == 1 ? "" : "s") collected after source blocklist filtering."
+        return SourceSyncResult(
+            group: result.group,
+            collectedAt: result.collectedAt,
+            items: filteredItems,
+            state: result.state,
+            dataTruth: result.dataTruth,
+            evidence: evidence,
+            canonicalOpportunities: result.canonicalOpportunities,
+            canonicalNotifications: result.canonicalNotifications
+        )
+    }
+
+    private func sanitizedStoredEvidence(_ evidence: String) -> String {
+        containsBlockedSourceReference(evidence)
+            ? "Stored evidence was hidden because it references a blocked source."
+            : evidence
+    }
+
+    private func containsBlockedSourceReference(_ value: String) -> Bool {
+        sourceBlocklist.contains { rule in
+            let domain = rule.domain.lowercased()
+            let sourceName = domain.split(separator: ".").first.map(String.init) ?? domain
+            return value.localizedCaseInsensitiveContains(domain)
+                || (!sourceName.isEmpty && value.localizedCaseInsensitiveContains(sourceName))
+        }
+    }
+
+    @discardableResult
+    private func applySourceBlocklist() -> Int {
+        let previousItemCount = sourceItems.count
+        sourceItems.removeAll(where: isSourceBlocked)
+        let allowedItemIDs = Set(sourceItems.map(\.id))
+
+        opportunities = opportunities.compactMap { opportunity in
+            guard !opportunity.items.isEmpty else { return opportunity }
+            let items = opportunity.items.filter { !isSourceBlocked($0) }
+            guard !items.isEmpty else { return nil }
+            return opportunity.replacingBlockedSourceItems(items)
+        }
+        let allowedOpportunityIDs = Set(opportunities.map(\.id))
+        notifications.removeAll { !allowedOpportunityIDs.contains($0.opportunityID) }
+        savedOpportunityIDs = savedOpportunityIDs.intersection(allowedOpportunityIDs)
+        dispositions = dispositions.filter { allowedOpportunityIDs.contains($0.key) }
+        pendingDispositionMutations.removeAll { !allowedOpportunityIDs.contains($0.opportunityID) }
+        comments = comments.compactMap { cluster in
+            let items = cluster.sourceItems.filter { allowedItemIDs.contains($0.id) && !isSourceBlocked($0) }
+            guard !items.isEmpty else { return nil }
+            return CommentCluster(
+                id: cluster.id,
+                question: cluster.question,
+                count: cluster.count,
+                demand: cluster.demand,
+                language: cluster.language,
+                sourceItems: items
+            )
+        }
+        if selectedOpportunityID.map({ !allowedOpportunityIDs.contains($0) }) == true {
+            selectedOpportunityID = nil
+        }
+        return previousItemCount - sourceItems.count
+    }
+
+    private func seededSourceBlocklist(_ rules: [SourceBlockRule]) -> [SourceBlockRule] {
+        var rulesByDomain: [String: SourceBlockRule] = [:]
+        for rule in rules {
+            guard let domain = SourceDomainNormalizer.normalizedDomain(from: rule.domain) else { continue }
+            rulesByDomain[domain] = SourceBlockRule(
+                id: rule.id,
+                domain: domain,
+                label: rule.label.isEmpty ? domain : rule.label,
+                createdAt: rule.createdAt,
+                note: rule.note
+            )
+        }
+        if rulesByDomain["arxiv.org"] == nil {
+            rulesByDomain["arxiv.org"] = SourceBlockRule(
+                domain: "arxiv.org",
+                label: "arxiv.org",
+                createdAt: now(),
+                note: "Blocked by default at user request."
+            )
+        }
+        return rulesByDomain.values.sorted {
+            $0.domain.localizedCaseInsensitiveCompare($1.domain) == .orderedAscending
+        }
     }
 
     private func topicCoverage(
@@ -1241,6 +1454,102 @@ final class AppStore: ObservableObject {
         return result
     }
 
+    private func queuePreferenceChange(_ patch: ServerPreferencePatch) {
+        guard !patch.isEmpty else { return }
+        let merged = pendingPreferencePatch.merging(patch)
+        if merged != pendingPreferencePatch {
+            preferenceIdempotencyKey = UUID().uuidString
+        }
+        pendingPreferencePatch = merged
+        preferenceRevision += 1
+        persistReportingFailure()
+        Task { await synchronizePreferences() }
+    }
+
+    private func applyCanonicalPreferences(
+        _ canonical: ServerPreferences,
+        preserving localPatch: ServerPreferencePatch = ServerPreferencePatch()
+    ) {
+        if localPatch.refreshMinutes == nil {
+            refreshMinutes = canonical.refreshMinutes
+            settings.refreshMinutes = canonical.refreshMinutes
+        }
+        if localPatch.notificationsEnabled == nil {
+            settings.notificationsEnabled = canonical.notificationsEnabled
+            notificationsEnabled = canonical.notificationsEnabled
+        }
+        if localPatch.digestHour == nil {
+            digestHour = canonical.digestHour
+            settings.digestHour = canonical.digestHour
+        }
+    }
+
+    func synchronizePreferences() async {
+        guard !isSyncingPreferences else { return }
+        isSyncingPreferences = true
+        defer { isSyncingPreferences = false }
+
+        var attempts = 0
+        while attempts < 3 {
+            let revision = preferenceRevision
+            let pending = pendingPreferencePatch
+            if pending.isEmpty {
+                let result = await preferenceSync.fetchCanonical()
+                guard result.errorMessage == nil, let canonical = result.preferences else { return }
+                guard revision == preferenceRevision else { continue }
+                preferenceETag = result.etag ?? preferenceETag
+                applyCanonicalPreferences(canonical)
+                persistReportingFailure()
+                return
+            }
+
+            if preferenceETag == nil {
+                let result = await preferenceSync.fetchCanonical()
+                guard result.errorMessage == nil, let canonical = result.preferences else {
+                    statusMessage = "Preferences saved locally - backend sync pending"
+                    return
+                }
+                preferenceETag = result.etag
+                if revision != preferenceRevision { continue }
+                applyCanonicalPreferences(canonical, preserving: pendingPreferencePatch)
+            }
+
+            guard let etag = preferenceETag else { return }
+            let idempotencyKey = preferenceIdempotencyKey ?? UUID().uuidString
+            if preferenceIdempotencyKey == nil {
+                preferenceIdempotencyKey = idempotencyKey
+                persistReportingFailure()
+            }
+            let result = await preferenceSync.update(pending, ifMatch: etag, idempotencyKey: idempotencyKey)
+            if result.conflict, let canonical = result.preferences {
+                preferenceETag = result.etag ?? preferenceETag
+                applyCanonicalPreferences(canonical, preserving: pendingPreferencePatch)
+                attempts += 1
+                continue
+            }
+            guard result.errorMessage == nil, let canonical = result.preferences else {
+                statusMessage = "Preferences saved locally - backend sync pending"
+                return
+            }
+
+            preferenceETag = result.etag ?? preferenceETag
+            pendingPreferencePatch = pendingPreferencePatch.removing(pending)
+            applyCanonicalPreferences(canonical, preserving: pendingPreferencePatch)
+            if pendingPreferencePatch.isEmpty {
+                preferenceIdempotencyKey = nil
+            } else if preferenceIdempotencyKey == idempotencyKey {
+                preferenceIdempotencyKey = UUID().uuidString
+            }
+            persistReportingFailure()
+            if pendingPreferencePatch.isEmpty {
+                statusMessage = "Preferences synchronized"
+                return
+            }
+            attempts += 1
+        }
+        statusMessage = "Preferences saved locally - backend sync pending"
+    }
+
     private func persistReportingFailure() {
         do {
             try persist()
@@ -1272,9 +1581,19 @@ final class AppStore: ObservableObject {
                 pendingDispositionMutations: pendingDispositionMutations,
                 watchlistNeedsSync: watchlistNeedsSync,
                 savedOpportunityIDs: savedOpportunityIDs,
-                muteRules: muteRules
+                muteRules: muteRules,
+                sourceBlocklist: sourceBlocklist
             )
         )
+        if let preferencePersistence = persistence as? any PreferenceSyncStatePersistence {
+            try preferencePersistence.savePreferenceSyncState(
+                PreferenceSyncState(
+                    pendingPatch: pendingPreferencePatch,
+                    etag: preferenceETag,
+                    idempotencyKey: preferenceIdempotencyKey
+                )
+            )
+        }
     }
 
     private var latestPendingWrittenState: String {
@@ -1306,6 +1625,43 @@ extension Opportunity {
             || brief.localizedCaseInsensitiveContains(query)
             || topicKey.localizedCaseInsensitiveContains(query)
             || items.contains { $0.matchesResearchQuery(query) }
+    }
+}
+
+private extension Opportunity {
+    func replacingBlockedSourceItems(_ items: [SourceItem]) -> Opportunity {
+        let itemIDs = Set(items.map(\.id))
+        let replacementOriginal = originalSource.flatMap { original in
+            itemIDs.contains(original.id) ? items.first { $0.id == original.id } : nil
+        } ?? items
+            .filter { $0.group == .official && $0.isOriginalSource && $0.credibility >= 0.75 }
+            .sorted { $0.publishedAt < $1.publishedAt }
+            .first
+        return Opportunity(
+            id: id,
+            topicKey: topicKey,
+            title: replacementOriginal?.title ?? title,
+            brief: brief,
+            verification: verification,
+            earliestPublishedAt: items.map(\.publishedAt).min() ?? earliestPublishedAt,
+            originalSource: replacementOriginal,
+            items: items.sorted {
+                if $0.publishedAt == $1.publishedAt { return $0.externalID < $1.externalID }
+                return $0.publishedAt < $1.publishedAt
+            },
+            score: score,
+            regionalExplanation: regionalExplanation,
+            coverageExplanation: coverageExplanation,
+            disposition: disposition,
+            dispositionUpdatedAt: dispositionUpdatedAt,
+            dispositionMutationID: dispositionMutationID
+        )
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }
 
