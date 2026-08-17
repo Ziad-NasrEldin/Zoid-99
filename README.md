@@ -1,5 +1,15 @@
 # Zoid 99
 
+<p align="center">
+  <img src="docs/proof/zoid-99-release-app.png" alt="Zoid 99" width="900">
+</p>
+<p align="center">
+  <img src="docs/proof/visual-quality-pass/phase-1-after/today-standard.png" alt="Zoid 99 Today" width="900">
+</p>
+<p align="center">
+  <img src="docs/proof/visual-quality-pass/phase-1-after/live-radar-standard.png" alt="Zoid 99 Live Radar" width="900">
+</p>
+
 Native macOS research intelligence that finds Arabic AI content opportunities — what the world is shipping, what Arabic audiences want, and where the coverage gap is.
 
 Built for an Arabic AI video creator who needs one research ledger instead of six tabs. It does not write scripts, publish, or reply.
