@@ -12,3 +12,12 @@ credentials.env
 .env
 deploy/zoid99/.env.production
 deploy/zoid99/secrets/
+
+# AI agent files
+AGENTS.md
+
+# Junk / non-production files
+*.log
+*.plan.md
+docs/superpowers/plans/
+.lavish/
